@@ -39,7 +39,7 @@ auth = dash_auth.BasicAuth(
 server = app.server
 
 ########## PPG
-production_df = pd.read_excel('data/work_cell_data.xlsx')
+production_df = pd.read_csv('data/work_cell_data.csv')
 margin_column = 'Actual vs Planned'
 groupby_primary = 'Batch Close Month'
 groupby_secondary = 'Inventory Org Name'
