@@ -377,7 +377,7 @@ Visualization Tab:
 search_bar = html.A(
     dbc.Row(
     [
-        dbc.Col(html.Img(src='assets/mfg_logo.png', height="40px")),
+        # dbc.Col(html.Img(src='assets/mfg_logo.png', height="40px")),
     ],
     no_gutters=True,
     className="ml-auto flex-nowrap mt-3 mt-md-0",
@@ -391,7 +391,7 @@ NAVBAR = dbc.Navbar(
     [ html.A(
             dbc.Row(
                 [
-                    dbc.Col(html.Img(src='assets/caravel_logo.png', height="40px")),
+                    dbc.Col(html.Img(src='assets/dashboard_logo.png', height="50px")),
                 ],
                 align="center",
                 no_gutters=True,
@@ -603,58 +603,6 @@ html.Div(className='pretty_container', children=[KPIS,
 )
 app.config.suppress_callback_exceptions = True
 
-# @app.callback(
-#     [Output('opportunity-table', 'data'),
-#     Output('opportunity-table', 'columns'),],
-#     [Input('production-df-upload', 'children'),
-#      Input('stat-df-upload', 'children'),
-#      Input('descriptor_dropdown_analytics', 'value'),
-#      Input('family_dropdown_analytics', 'value'),
-#      Input('opportunity-button', 'n_clicks'),
-#      Input('primary-upload', 'children'),
-#      Input('margin-upload', 'children'),
-#      Input('filter_dropdown_1', 'value'),]
-# )
-# def display_opportunity_results(production_df, stat_df, descriptors, families,
-#     button, groupby_primary, margin_column, category_filter):
-#     ctx = dash.callback_context
-#     if ctx.triggered[0]['prop_id'] == 'opportunity-button.n_clicks':
-#         production_df = pd.read_json(production_df)
-#         stat_df = pd.read_json(stat_df)
-#         results = maximize_ebitda(production_df, stat_df, families, descriptors,
-#             groupby_primary, margin_column, category_filter)
-#         results[results.columns[3:]] = np.round(results[results.columns[3:]].astype(float))
-#         columns=[{"name": i, "id": i} for i in results.columns]
-#         return results.to_dict('rows'), columns
-#
-# @app.callback(
-#     [Output('violin_plot', 'style'),
-#      Output('opportunity-table-block', 'style'),],
-#     [Input('tabs-control', 'value'),]
-# )
-# def display_violin_plot(tab):
-#     if (tab == 'tab-1') | (tab == 'tab-3') | (tab == 'tab-4'):
-#             return {'display': 'block',
-#              'margin': '10px',
-#              'padding': '15px',
-#              'position': 'relative',
-#              'border-radius': '5px',
-#              'width': '95%'}, {'display': 'none'}
-#     elif tab == 'tab-2':
-#             return {'display': 'none'}, \
-#             {'max-height': '500px',
-#                'overflow': 'scroll',
-#                'display': 'block',
-#                'padding': '0px 20px 20px 20px'}
-
-# @app.callback(
-#     [Output('clickdump', 'children')],
-#     [Input('primary_plot', 'selectedData')]
-# )
-# def clickdump(data):
-#     return json.dumps(data)
-
-
 @app.callback(
     [Output('kpi-1', 'children'),
      Output('kpi-2', 'children'),
@@ -680,47 +628,11 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
         filter_selected)]
     old_kpi_2 = production_df.shape[0]
     old_kpi_1 = (production_df['Actual Qty In (KLG)'].sum() -
-                 production_df['Planned Qty In (KLG)'].sum()) /\
-                 production_df['Planned Qty In (KLG)'].sum()
+                 production_df['Planned Qty In (KLG)'].sum()) * 5
     old_kpi_3 = production_df['Actual Qty In (KLG)'].sum()
-    return "{:.3f}%".format(old_kpi_1), \
+    return "{:.2f} M USD".format(old_kpi_1/1e6), \
     "{}".format(old_kpi_2),\
     "{:.2f} M kg".format(old_kpi_3/1e6)
-
-# @app.callback(
-#     [Output('filter_dropdown_1', 'options'),
-#      Output('filter_dropdown_1', 'value'),
-#      Output('descriptor_dropdown_analytics', 'options'),
-#      Output('descriptor_dropdown_analytics', 'value'),
-#      Output('family_dropdown_analytics', 'options'),
-#       Output('family_dropdown_analytics', 'value'),
-#       Output('length_width_dropdown', 'options'),
-#       Output('length_width_dropdown', 'value'),],
-#     [Input('descriptors-upload', 'children'),
-#      Input('production-df-upload', 'children')]
-# )
-# def update_dropdowns(descriptors, production_df):
-#     production_df = pd.read_json(production_df)
-#     families = list(production_df[category_filter].unique())
-#     descriptor_options = [{'label': i, 'value': i} for i in descriptors]
-#     family_options = columns = [{'label': i, 'value': i} for i in families]
-#     return descriptor_options, descriptors[1], \
-#         descriptor_options, \
-#         descriptors, family_options, families, descriptor_options, descriptors[:-5]
-
-# @app.callback(
-#     Output('pvalue-number', 'children'),
-#     [Input('p-value-slider', 'value')]
-# )
-# def display_descriptor_number(select):
-#     return "p-Value Limit for Median Test: {}".format(select)
-#
-# @app.callback(
-#     Output('margin-label', 'children'),
-#     [Input('margin-upload', 'children')]
-# )
-# def display_descriptor_number(select):
-#     return select
 
 @app.callback(
     [Output('filter_dropdown_2', 'options'),
@@ -803,96 +715,5 @@ def display_tertiary_plot(filter_category, filter_selected, rows, data, tab,
     return make_tertiary_plot(production_df, margin_column, descriptors,
         clickData=clickData, toAdd=toAdd, col=col, val=val)
 
-### UPLOAD TOOL ###
-# @app.callback(
-#     [Output('upload-margin', 'options'),
-#    Output('upload-descriptors', 'options'),
-#    Output('production-df-holding', 'children'),
-#    Output('upload-volume', 'options')],
-#   [Input('upload-data', 'contents'),
-#    Input('preset-files', 'value')],
-#   [State('upload-data', 'filename'),
-#    State('upload-data', 'last_modified')])
-# def update_production_df_and_table(list_of_contents, preset_file, list_of_names, list_of_dates):
-#     if list_of_contents is not None:
-#         df = [parse_contents(c, n, d) for c, n, d in
-#             zip(list_of_contents, list_of_names, list_of_dates)]
-#         df = df[0]
-#         columns = [{'label': i, 'value': i} for i in df.columns]
-#         columns_table = [{"name": i, "id": i} for i in df.columns]
-#         return columns, columns, df.to_json(), columns
-#     elif preset_file is not None:
-#         df = pd.read_csv('data/{}.csv'.format(preset_file))
-#         columns = [{'label': i, 'value': i} for i in df.columns]
-#         columns_table = [{"name": i, "id": i} for i in df.columns]
-#         return columns, columns, df.to_json(), columns
-#
-# @app.callback(
-#     [Output('production-df-upload', 'children'),
-#     Output('stat-df-upload', 'children'),
-#     Output('descriptors-upload', 'children'),
-#     Output('margin-upload', 'children'),
-#     Output('primary-upload', 'children'),
-#     Output('secondary-upload', 'children'),],
-#    [Input('production-df-holding', 'children'),
-#     Input('upload-margin', 'value'),
-#     Input('upload-descriptors', 'value'),
-#     Input('datafile-button', 'n_clicks'),
-#     Input('upload-volume', 'value'),
-#     Input('p-value-slider', 'value')]
-# )
-# def update_main_dataframe(holding_df, margin, descriptors, button, volume, pvalue):
-#     ctx = dash.callback_context
-#     if ctx.triggered[0]['prop_id'] == 'datafile-button.n_clicks':
-#         production_df = pd.read_json(holding_df)
-#         for desc in descriptors: #9 is arbitrary should be a fraction of total datapoints or something
-#             if (len(production_df[desc].unique()) > 9) and (production_df[desc].dtype == float):
-#                 production_df[desc] = np.round(production_df[desc].astype(float),1)
-#         stat_df = my_median_test(production_df,
-#                    metric=margin,
-#                    descriptors=descriptors,
-#                    stat_cut_off=pvalue,
-#                    continuous=False)
-#         production_df[descriptors] = production_df[descriptors].astype(str)
-#         production_df = production_df.sort_values([category_filter, margin],
-#                                                   ascending=False)
-#         return production_df.to_json(), stat_df.to_json(), descriptors, margin,\
-#             volume
-# @app.callback(
-#     [Output('opportunity-table', 'data'),
-#     Output('opportunity-table', 'columns'),],
-#     [Input('descriptor_dropdown_analytics', 'value'),
-#      Input('family_dropdown_analytics', 'value'),
-#      Input('opportunity-button', 'n_clicks'),
-#      Input('production-df-upload', 'children'),
-#      Input('stat-df-upload', 'children')]
-# )
-# def display_opportunity_results(descriptors, families,
-#                                 button, production_df, stat_df):
-#     ctx = dash.callback_context
-#     if ctx.triggered[0]['prop_id'] == 'opportunity-button.n_clicks':
-#         production_df = pd.read_json(production_df)
-#         production_df = production_df.sort_values([category_filter, margin_column],
-#             ascending=False).reset_index(drop=True)
-#         stat_df = pd.read_json(stat_df)
-#         results = maximize_ebitda(production_df, stat_df, families, descriptors)
-#         results[results.columns[3:]] = np.round(results[results.columns[3:]].astype(float))
-#         columns=[{"name": i, "id": i} for i in results.columns]
-#         return results.to_dict('rows'), columns
-# @app.callback(
-#     [Output('upload-table', 'data'),
-#     Output('upload-table', 'columns'),],
-#     [Input('production-df-holding', 'children'),
-#      Input('production-df-upload', 'children'),]
-# )
-# def store_upload_results(df_holding, df_upload):
-#     if df_holding is not None:
-#
-#         production_df = pd.read_json(df_holding)
-#     else:
-#         production_df = pd.read_json(df_upload)
-#     # production_df = production_df.sort_values([category_filter, margin_column], ascending=False).reset_index(drop=True)
-#     columns=[{"name": i, "id": i} for i in production_df.columns]
-#     return production_df.to_dict('rows'), columns
 if __name__ == "__main__":
     app.run_server(debug=True)
