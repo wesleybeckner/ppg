@@ -352,37 +352,23 @@ HIDDEN = html.Div([
 
 ABOUT = html.Div([dcc.Markdown('''
 
-###### This analysis correlates key product attributes (descriptors) with product margin (EBITDA) ######
+###### This dashboard evaluates Work Cell correlation with Planned vs Actual production ######
 
 **KPIs:**
 
-Calculate EBITDA (€)/products/volume from either: 1) eliminating products from 2019 production if ‘Sort by’ = ‘Low EBITDA’, or 2) adding products to an empty production schedule if ‘Sort by’ = ‘High EBITDA’
+--KPI Description--
 
 **Charts:**
 
-EBITDA by Product Family Bubble Chart: Products are grouped by family then rank ordered according to EBITDA. Bubble size is by order volume (kg)
-
-Product Descriptor Violin Chart: Distributions for selected descriptors are shown in a violin plot. Read more about violin plots [here](https://en.wikipedia.org/wiki/Violin_plot)
-
-Descriptor Sunburst Chart: Displays product breakdown for a given descriptor selected in the violin plot. Read from inner to outer rings, the ‘pie’ slices in each ring depict the volume break down for that level in terms of order numbers; classes of product become more specific moving from the inner to outer rings. Color code indicates EBITDA for products described by that level in the pie. Outer rings can toggle width/thickness attributes on and off
+--Primary, Secondary, Tertiary Chart Description--
 
 **Controls:**
 
-Families & Descriptors: select families/descriptors upon which to perform analysis/visualization
+--Controls Tab Description--
 
 Visualization Tab:
 
-Presets: Interactive allows user selection of various settings, Opportunities 1 & 2 show margin opportunities in the Shrink Sleeve and Cards Core families, respectively
-
-Sort by: if set to ‘High EBITDA’, range bar is sorted from positive to negative correlation with EBITDA; if set to ‘Low EBITDA’, range bar is sorted form negative to positive correlation with EBITDA
-
-Number of Descriptors: range bar selects sorted descriptors. Selection updates plots and KPIs with products described by those descriptors.
-
-Toggle Violin: overlays selected products onto the EBITDA by Product Family chart
-
-Analytics Tab:
-
-Find Opportunity: Algorithm calculates % EBITDA increase by eliminating products according to family/descriptor selection. Table is returned that is sorted from high to low % EBITDA increase.
+--Analytics Tab Description--
 
 ''')],style={'margin-top': '20px',
              'max-height': '500px',
