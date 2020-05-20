@@ -689,7 +689,7 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
                          production_df['Planned Qty In (KLG)'].sum()) /\
                          production_df['Planned Qty In (KLG)'].sum()
             old_kpi_3 = production_df['Actual Qty In (KLG)'].sum()
-            return "{:.2f}%".format(old_kpi_1), \
+            return "{:.3f}%".format(old_kpi_1), \
             "{}".format(old_kpi_2),\
             "{:.2f} M kg".format(old_kpi_3/1e6)
     elif (tab == 'tab-2'):
