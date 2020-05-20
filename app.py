@@ -410,7 +410,7 @@ VISUALIZATION = html.Div([
     dcc.Dropdown(id='filter_dropdown_1',
                  options=[{'label': i, 'value': i} for i in
                             descriptors],
-                 value=descriptors[1],
+                 value=descriptors[0],
                  multi=False,
                  className="dcc_control"),
     dcc.Dropdown(id='filter_dropdown_2',
@@ -588,7 +588,7 @@ html.Div(className='pretty_container', children=[KPIS,
             dcc.Graph(
                         id='tertiary_plot',
                         figure=make_tertiary_plot(production_df, margin_column,
-                                         descriptors, toAdd=descriptors)
+                                         descriptors, toAdd=descriptors[:-3])
                         ),
                 ], className='mini_container',
                    id='sunburst',
@@ -678,25 +678,14 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
     production_df = pd.read_json(production_df)
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
-    if (tab == 'tab-1') or (tab == 'tab-3') or (tab == 'tab-4'):
-        if selectedData is not None:
-            return calculate_margin_opportunity(production_df, stat_df,
-                groupby_primary, margin_column, category_filter,
-                descriptors, families, results_df=None, selecteddata=selecteddata)
-        else:
-            old_kpi_2 = production_df.shape[0]
-            old_kpi_1 = (production_df['Actual Qty In (KLG)'].sum() -
-                         production_df['Planned Qty In (KLG)'].sum()) /\
-                         production_df['Planned Qty In (KLG)'].sum()
-            old_kpi_3 = production_df['Actual Qty In (KLG)'].sum()
-            return "{:.3f}%".format(old_kpi_1), \
-            "{}".format(old_kpi_2),\
-            "{:.2f} M kg".format(old_kpi_3/1e6)
-    elif (tab == 'tab-2'):
-        results_df = pd.DataFrame(data)
-        results_df = results_df.iloc[rows].reset_index(drop=True)
-        return calculate_margin_opportunity(production_df, stat_df,
-            groupby_primary, margin_column, category_filter, results_df=results_df)
+    old_kpi_2 = production_df.shape[0]
+    old_kpi_1 = (production_df['Actual Qty In (KLG)'].sum() -
+                 production_df['Planned Qty In (KLG)'].sum()) /\
+                 production_df['Planned Qty In (KLG)'].sum()
+    old_kpi_3 = production_df['Actual Qty In (KLG)'].sum()
+    return "{:.3f}%".format(old_kpi_1), \
+    "{}".format(old_kpi_2),\
+    "{:.2f} M kg".format(old_kpi_3/1e6)
 
 # @app.callback(
 #     [Output('filter_dropdown_1', 'options'),
