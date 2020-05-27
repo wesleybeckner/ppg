@@ -92,6 +92,75 @@ def calculate_margin_opportunity(production_df,
             "{:.2f} M of {:.2f} M kg ({:.1f}%)".format(new_kg/1e6, old_kg/1e6,
                 kg_percent)
 
+def make_primary_plot(production_df,
+                   margin_column,
+                   groupby_primary,
+                   groupby_secondary,
+                   filter_selected=None,
+                   filter_category=None,
+                   results_df=None):
+    if "vs" in margin_column:
+        margin_column = '{} (% by {}, {})'\
+                       .format(margin_column, groupby_primary, groupby_secondary)
+        dff = pd.DataFrame(((production_df.groupby([groupby_primary, groupby_secondary])\
+                             ['Actual Qty In (KLG)'].sum() -
+                         production_df.groupby([groupby_primary, groupby_secondary])\
+                             ['Planned Qty In (KLG)'].sum()) /
+                         production_df.groupby([groupby_primary, groupby_secondary])\
+                            ['Planned Qty In (KLG)'].sum()) * 100).reset_index()
+        dff.columns = [groupby_primary, groupby_secondary, margin_column]
+    elif "KLG" in margin_column:
+        dff = pd.DataFrame(production_df.groupby([groupby_primary,
+                                       groupby_secondary])\
+                           [margin_column].sum()).reset_index()
+    else:
+        dff = pd.DataFrame(production_df.groupby([groupby_primary,
+                                       groupby_secondary])\
+                           [margin_column].mean()).reset_index()
+    fig = px.bar(dff, dff[groupby_primary],
+                 margin_column,
+                 color=groupby_secondary,
+                 barmode='group')
+
+    if results_df is not None:
+        new_df = pd.DataFrame()
+        for index in results_df.index:
+            x = production_df.loc[(production_df[category_filter] == results_df.iloc[index]['Family']) &
+                        (production_df[results_df.iloc[index]['Descriptor']] == results_df.iloc[index]['Group'])]
+            x['color'] = next(colors_cycle) # for line shapes
+            new_df = pd.concat([new_df, x])
+            new_df = new_df.reset_index(drop=True)
+        shapes=[]
+        for index, i in enumerate(new_df['Product']):
+            shapes.append({'type': 'line',
+                           'xref': 'x',
+                           'yref': 'y',
+                           'x0': i,
+                           'y0': new_df[margin_column][index],
+                           'x1': i,
+                           'y1': max(production_df[margin_column]),
+                           'line':dict(
+                               dash="dot",
+                               color=new_df['color'][index],)})
+        fig.update_layout(shapes=shapes)
+    fig.layout.clickmode = 'event+select'
+    fig.update_layout({
+            "plot_bgcolor": "#FFFFFF",
+            "paper_bgcolor": "#FFFFFF",
+            # "title": '{} by {}'.format(margin_column, color),
+            # "yaxis.title": "{}".format(margin_column),
+            "height": 600,
+            "margin": dict(
+                   l=0,
+                   r=0,
+                   b=0,
+                   t=30,
+                   pad=4
+),
+            "xaxis.tickfont.size": 8,
+            })
+    return fig
+
 def make_secondary_plot(production_df,
                    margin_column,
                    groupby_primary,
@@ -167,75 +236,6 @@ def make_tertiary_plot(production_df,
                        pad=4
     ),
                 })
-    return fig
-
-def make_primary_plot(production_df,
-                   margin_column,
-                   groupby_primary,
-                   groupby_secondary,
-                   filter_selected=None,
-                   filter_category=None,
-                   results_df=None):
-    if "vs" in margin_column:
-        margin_column = '{} (% by {}, {})'\
-                       .format(margin_column, groupby_primary, groupby_secondary)
-        dff = pd.DataFrame(((production_df.groupby([groupby_primary, groupby_secondary])\
-                             ['Actual Qty In (KLG)'].sum() -
-                         production_df.groupby([groupby_primary, groupby_secondary])\
-                             ['Planned Qty In (KLG)'].sum()) /
-                         production_df.groupby([groupby_primary, groupby_secondary])\
-                            ['Planned Qty In (KLG)'].sum()) * 100).reset_index()
-        dff.columns = [groupby_primary, groupby_secondary, margin_column]
-    elif "KLG" in margin_column:
-        dff = pd.DataFrame(production_df.groupby([groupby_primary,
-                                       groupby_secondary])\
-                           [margin_column].sum()).reset_index()
-    else:
-        dff = pd.DataFrame(production_df.groupby([groupby_primary,
-                                       groupby_secondary])\
-                           [margin_column].mean()).reset_index()
-    fig = px.bar(dff, dff[groupby_primary],
-                 margin_column,
-                 color=groupby_secondary,
-                 barmode='group')
-
-    if results_df is not None:
-        new_df = pd.DataFrame()
-        for index in results_df.index:
-            x = production_df.loc[(production_df[category_filter] == results_df.iloc[index]['Family']) &
-                        (production_df[results_df.iloc[index]['Descriptor']] == results_df.iloc[index]['Group'])]
-            x['color'] = next(colors_cycle) # for line shapes
-            new_df = pd.concat([new_df, x])
-            new_df = new_df.reset_index(drop=True)
-        shapes=[]
-        for index, i in enumerate(new_df['Product']):
-            shapes.append({'type': 'line',
-                           'xref': 'x',
-                           'yref': 'y',
-                           'x0': i,
-                           'y0': new_df[margin_column][index],
-                           'x1': i,
-                           'y1': max(production_df[margin_column]),
-                           'line':dict(
-                               dash="dot",
-                               color=new_df['color'][index],)})
-        fig.update_layout(shapes=shapes)
-    fig.layout.clickmode = 'event+select'
-    fig.update_layout({
-            "plot_bgcolor": "#FFFFFF",
-            "paper_bgcolor": "#FFFFFF",
-            # "title": '{} by {}'.format(margin_column, color),
-            # "yaxis.title": "{}".format(margin_column),
-            "height": 600,
-            "margin": dict(
-                   l=0,
-                   r=0,
-                   b=0,
-                   t=30,
-                   pad=4
-),
-            "xaxis.tickfont.size": 8,
-            })
     return fig
 
 UPLOAD = html.Div([
