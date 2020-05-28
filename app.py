@@ -417,8 +417,8 @@ VISUALIZATION = html.Div([
                  className="dcc_control"),
     dcc.Dropdown(id='filter_dropdown_2',
                  options=[{'label': i, 'value': i} for i in
-                            production_df[groupby_primary].unique()],
-                 value=production_df[groupby_primary].unique(),
+                            production_df[descriptors[1]].unique()],
+                 value=production_df[descriptors[1]].unique(),
                  multi=True,
                  className="dcc_control"),
     html.P('Groupby Primary'),
