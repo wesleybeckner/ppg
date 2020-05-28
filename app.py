@@ -435,6 +435,13 @@ VISUALIZATION = html.Div([
                  value=descriptors[1],
                  multi=False,
                  className="dcc_control"),
+    html.P('Process Times'),
+    dcc.Dropdown(id='time_dropdown',
+                 options=[{'label': i, 'value': i} for i in
+                           time_components],
+                 value=time_components[-1],
+                 multi=False,
+                 className="dcc_control"),
       ],style={'max-height': '500px',
                'margin-top': '20px'}
 )
@@ -622,20 +629,29 @@ app.config.suppress_callback_exceptions = True
     Input('secondary_plot', 'clickData'),
     Input('primary_plot', 'selectedData'),
     Input('secondary_plot', 'relayoutData'),
+    Input('time_dropdown', 'value')
     ]
 )
 def display_opportunity(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
                         groupby_secondary, clickData, selectedData,
-                        relayoutData):
+                        relayoutData, time_column):
     production_df = pd.read_json(production_df, convert_dates=dates)
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
-    if 'xaxis.range[0]' in relayoutData.keys():
-        start = pd.to_datetime(relayoutData['xaxis.range[0]'])
-        end = pd.to_datetime(relayoutData['xaxis.range[1]'])
-        production_df = production_df.loc[(production_df[dates[-1]] < end) &
-                                          (production_df[dates[-1]] > start)]
+    for col in time_components:
+        production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
+    production_df[margin_column] = production_df[volume_column] /\
+        (production_df[time_column].dt.total_seconds()/60/60)
+    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+        production_df[margin_column].quantile(0.995))]
+    if relayoutData is not None:
+        if 'xaxis.range[0]' in relayoutData.keys():
+            start = pd.to_datetime(relayoutData['xaxis.range[0]'])
+            end = pd.to_datetime(relayoutData['xaxis.range[1]'])
+            production_df = production_df.loc[(production_df[dates[-1]] < end) &
+                                              (production_df[dates[-1]] > start)]
     old_kpi_2 = production_df.shape[0]
     old_kpi_1 = production_df[margin_column].mean()
     old_kpi_3 = production_df[volume_column].sum()
@@ -655,6 +671,13 @@ def update_filter(category):
     return [{'label': i, 'value': i} for i in production_df[category].unique()],\
         list(production_df[category].unique())
 
+@app.callback(
+    Output('margin-upload', 'children'),
+    [Input('time_dropdown', 'value')]
+)
+def margin_column(time_column):
+    return "{} By {}".format(volume_column, time_column)
+
 ### FIGURES ###
 @app.callback(
     Output('primary_plot', 'figure'),
@@ -668,20 +691,29 @@ def update_filter(category):
     Input('primary_dropdown', 'value'),
     Input('secondary_dropdown', 'value'),
     Input('secondary_plot', 'relayoutData'),
+    Input('time_dropdown', 'value')
     ]
 )
 def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
-                        groupby_secondary, relayoutData):
+                        groupby_secondary, relayoutData, time_column):
 
     production_df = pd.read_json(production_df, convert_dates=dates)
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
-    if 'xaxis.range[0]' in relayoutData.keys():
-        start = pd.to_datetime(relayoutData['xaxis.range[0]'])
-        end = pd.to_datetime(relayoutData['xaxis.range[1]'])
-        production_df = production_df.loc[(production_df[dates[-1]] < end) &
-                                          (production_df[dates[-1]] > start)]
+    for col in time_components:
+        production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
+    production_df[margin_column] = production_df[volume_column] /\
+        (production_df[time_column].dt.total_seconds()/60/60)
+    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+        production_df[margin_column].quantile(0.995))]
+    if relayoutData is not None:
+        if 'xaxis.range[0]' in relayoutData.keys():
+            start = pd.to_datetime(relayoutData['xaxis.range[0]'])
+            end = pd.to_datetime(relayoutData['xaxis.range[1]'])
+            production_df = production_df.loc[(production_df[dates[-1]] < end) &
+                                              (production_df[dates[-1]] > start)]
         return make_primary_plot(production_df,
           margin_column, volume_column, groupby_primary,
           groupby_secondary, chart_type='scatter')
@@ -700,17 +732,24 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
     Input('production-df-upload', 'children'),
     Input('margin-upload', 'children'),
     Input('primary_dropdown', 'value'),
-    Input('secondary_dropdown', 'value')
+    Input('secondary_dropdown', 'value'),
+    Input('time_dropdown', 'value')
     ]
 )
 def display_secondary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
-                        groupby_secondary):
+                        groupby_secondary, time_column):
 
     production_df = pd.read_json(production_df, convert_dates=dates)
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
-
+    for col in time_components:
+        production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
+    production_df[margin_column] = production_df[volume_column] /\
+        (production_df[time_column].dt.total_seconds()/60/60)
+    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+        production_df[margin_column].quantile(0.995))]
     return make_secondary_plot(production_df,
         margin_column, groupby_primary,
         groupby_secondary, chart_type='time')
@@ -731,22 +770,28 @@ def display_secondary_plot(filter_category, filter_selected, rows, data, tab,
     Input('length_width_dropdown', 'value'),
     Input('descriptors-upload', 'children'),
     Input('secondary_plot', 'relayoutData'),
+    Input('time_dropdown', 'value')
     ]
 )
 def display_tertiary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
                         groupby_secondary, clickData, selectedData,
-                         toAdd, descriptors, relayoutData):
+                         toAdd, descriptors, relayoutData, time_column):
 
     production_df = pd.read_json(production_df, convert_dates=dates)
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
+    for col in time_components:
+        production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
+    production_df[margin_column] = production_df[volume_column] /\
+        (production_df[time_column].dt.total_seconds()/60/60)
+    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+        production_df[margin_column].quantile(0.995))]
     ctx = dash.callback_context
     if ctx.triggered[0]['prop_id'] == 'primary_plot.selectedData':
         dff = pd.DataFrame(selectedData['points'])
-
-        dfff = pd.DataFrame(production_df[groupby_secondary].unique())
-        print(dfff.head())
+        # dfff = pd.DataFrame(production_df[groupby_secondary].unique())
         subdf = production_df.loc[(production_df[groupby_primary].isin(dff['x']))]# &
                 # (production_df[groupby_secondary].isin(dfff.iloc
                 # [dfff.index.isin(dff['curveNumber'])][0].values))]
