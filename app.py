@@ -67,7 +67,7 @@ dates = ['Batch Completion Date',
  'Max Date']
 
 production_df = pd.read_csv('data/time_series_data.csv', parse_dates=dates)
-descriptors = production_df.columns[1:9]
+descriptors = production_df.columns[1:10]
 time_components = [i for i in production_df.columns if 'Tot.' in i]
 for col in time_components:
     production_df[col] = pd.to_timedelta(production_df[col])
@@ -77,7 +77,7 @@ margin_column = "{} By {}".format(volume_column, time_column)
 production_df[margin_column] = production_df[volume_column] /\
     (production_df[time_components[-1]].dt.total_seconds()/60/60)
 groupby_primary = 'Product'
-groupby_secondary = descriptors[1]
+groupby_secondary = descriptors[2]
 production_df = production_df.loc[production_df[margin_column] < 1e2]
 ##########
 
@@ -93,8 +93,10 @@ def make_primary_plot(production_df,
                    filter_selected=None,
                    filter_category=None,
                    results_df=None,
-                   chart_type='scatter'):
-    if chart_type == 'scatter':
+                   chart_type='Scatter',
+                   all_lines=True,
+                   median=True):
+    if chart_type == 'Scatter':
         dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column, volume_column]]\
              .median().sort_values(by=margin_column, ascending=False)).reset_index()
         dff['median'] = dff.groupby(groupby_secondary)[margin_column].\
@@ -116,6 +118,44 @@ def make_primary_plot(production_df,
             fig.add_trace(
                 data
             ),
+    elif chart_type == 'Distribution':
+        margin_column = "{} By {}".format(volume_column, time_column)
+        data = production_df
+        data[margin_column] = data[volume_column] / (data[time_column].dt.total_seconds()/60/60)
+        data = data.loc[data[margin_column] < np.inf]
+        data = data.loc[(data[margin_column] < data[margin_column].quantile(0.995))]
+        fig = go.Figure()
+        if all_lines:
+            data = data
+        else:
+            data = data.loc[data['Cost Center'] == line]
+        temp = pd.DataFrame(data.groupby([groupby_primary])[[margin_column, volume_column]]\
+             .median().sort_values(by=margin_column, ascending=False)).reset_index()
+        temp2 = pd.DataFrame(data.groupby([groupby_primary])[[margin_column, volume_column]]\
+             .mean().sort_values(by=margin_column, ascending=False)).reset_index()
+        data['median'] = temp.groupby(groupby_primary)[margin_column].\
+                transform('median')
+        data['mean']  = temp2.groupby(groupby_primary)[margin_column].\
+                transform('mean')
+        if median:
+            data = data.sort_values(['median', margin_column],
+                ascending=False).reset_index(drop=True)
+        else:
+            data = data.sort_values(['mean', margin_column],
+                ascending=False).reset_index(drop=True)
+        data['Site'] = ''
+
+        for index, product in enumerate(data[groupby_primary].unique()):
+            if median:
+                name = 'Avg: {:.2f}, {}'.format(temp.iloc[index][margin_column], temp.iloc[index][groupby_primary])
+            else:
+                name = 'Avg: {:.2f}, {}'.format(temp2.iloc[index][margin_column], temp2.iloc[index][groupby_primary])
+            fig.add_trace(go.Violin(x=data.loc[data[groupby_primary] == product]['Site'],
+                                    y=data.loc[data[groupby_primary] == product][margin_column],
+                                    name=name,
+                                    side='positive')
+                         )
+        fig.update_traces(meanline_visible=True, orientation='v')
 
 
     elif "vs" in margin_column:
@@ -412,13 +452,13 @@ VISUALIZATION = html.Div([
     dcc.Dropdown(id='filter_dropdown_1',
                  options=[{'label': i, 'value': i} for i in
                             descriptors],
-                 value=descriptors[1],
+                 value=descriptors[2],
                  multi=False,
                  className="dcc_control"),
     dcc.Dropdown(id='filter_dropdown_2',
                  options=[{'label': i, 'value': i} for i in
-                            production_df[descriptors[1]].unique()],
-                 value=production_df[descriptors[1]].unique(),
+                            production_df[descriptors[2]].unique()],
+                 value=production_df[descriptors[2]].unique(),
                  multi=True,
                  className="dcc_control"),
     html.P('Groupby Primary'),
@@ -432,7 +472,7 @@ VISUALIZATION = html.Div([
     dcc.Dropdown(id='secondary_dropdown',
                  options=[{'label': i, 'value': i} for i in
                            descriptors],
-                 value=descriptors[1],
+                 value=descriptors[2],
                  multi=False,
                  className="dcc_control"),
     html.P('Process Times'),
@@ -441,6 +481,12 @@ VISUALIZATION = html.Div([
                            time_components],
                  value=time_components[-1],
                  multi=False,
+                 className="dcc_control"),
+    html.P('Distributions'),
+    dcc.RadioItems(id='distribution',
+                 options=[{'label': i, 'value': i} for i in
+                           ['Scatter', 'Distribution']],
+                 value='Scatter',
                  className="dcc_control"),
       ],style={'max-height': '500px',
                'margin-top': '20px'}
@@ -678,6 +724,13 @@ def update_filter(category):
 def margin_column(time_column):
     return "{} By {}".format(volume_column, time_column)
 
+@app.callback(
+    Output('margin-label', 'children'),
+    [Input('time_dropdown', 'value')]
+)
+def margin_column(time_column):
+    return "{} By {}".format(volume_column, time_column)
+
 ### FIGURES ###
 @app.callback(
     Output('primary_plot', 'figure'),
@@ -691,12 +744,14 @@ def margin_column(time_column):
     Input('primary_dropdown', 'value'),
     Input('secondary_dropdown', 'value'),
     Input('secondary_plot', 'relayoutData'),
-    Input('time_dropdown', 'value')
+    Input('time_dropdown', 'value'),
+    Input('distribution', 'value')
     ]
 )
 def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
-                        groupby_secondary, relayoutData, time_column):
+                        groupby_secondary, relayoutData, time_column,
+                        chart_type):
 
     production_df = pd.read_json(production_df, convert_dates=dates)
     production_df = production_df.loc[production_df[filter_category].isin(
@@ -716,11 +771,11 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                                               (production_df[dates[-1]] > start)]
         return make_primary_plot(production_df,
           margin_column, volume_column, groupby_primary,
-          groupby_secondary, chart_type='scatter')
+          groupby_secondary, chart_type=chart_type)
 
     return make_primary_plot(production_df,
       margin_column, volume_column, groupby_primary,
-      groupby_secondary, chart_type='scatter')
+      groupby_secondary, chart_type=chart_type)
 
 @app.callback(
     Output('secondary_plot', 'figure'),
