@@ -90,12 +90,13 @@ def make_primary_plot(production_df,
                    volume_column,
                    groupby_primary,
                    groupby_secondary,
+                   time_column,
                    filter_selected=None,
                    filter_category=None,
                    results_df=None,
                    chart_type='Scatter',
                    all_lines=True,
-                   median=True):
+                   median=False):
     if chart_type == 'Scatter':
         dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column, volume_column]]\
              .median().sort_values(by=margin_column, ascending=False)).reset_index()
@@ -482,7 +483,7 @@ VISUALIZATION = html.Div([
                  value=time_components[-1],
                  multi=False,
                  className="dcc_control"),
-    html.P('Distributions'),
+    html.P('Graph Type'),
     dcc.RadioItems(id='distribution',
                  options=[{'label': i, 'value': i} for i in
                            ['Scatter', 'Distribution']],
@@ -602,7 +603,7 @@ html.Div(className='pretty_container', children=[KPIS,
             dcc.Graph(id='primary_plot',
                       figure=make_primary_plot(production_df,
                         margin_column, volume_column, groupby_primary,
-                        groupby_secondary)),
+                        groupby_secondary, time_column)),
             ], className='mini_container',
                id='ebit-family-block',
                style={'display': 'block'},
@@ -771,11 +772,11 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                                               (production_df[dates[-1]] > start)]
         return make_primary_plot(production_df,
           margin_column, volume_column, groupby_primary,
-          groupby_secondary, chart_type=chart_type)
+          groupby_secondary, time_column, chart_type=chart_type)
 
     return make_primary_plot(production_df,
       margin_column, volume_column, groupby_primary,
-      groupby_secondary, chart_type=chart_type)
+      groupby_secondary, time_column, chart_type=chart_type)
 
 @app.callback(
     Output('secondary_plot', 'figure'),
