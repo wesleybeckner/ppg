@@ -67,7 +67,7 @@ dates = ['Batch Completion Date',
  'Max Date']
 
 production_df = pd.read_csv('data/time_series_data.csv', parse_dates=dates)
-descriptors = production_df.columns[1:10]
+descriptors = production_df.columns[1:11]
 time_components = [i for i in production_df.columns if 'Tot.' in i]
 for col in time_components:
     production_df[col] = pd.to_timedelta(production_df[col])
@@ -76,9 +76,10 @@ volume_column = 'Parent Batch Actual Qty'
 margin_column = "{} By {}".format(volume_column, time_column)
 production_df[margin_column] = production_df[volume_column] /\
     (production_df[time_components[-1]].dt.total_seconds()/60/60)
-groupby_primary = 'Product'
+groupby_primary = 'Technology'
 groupby_secondary = descriptors[2]
 production_df = production_df.loc[production_df[margin_column] < 1e2]
+print(production_df['Inventory Org Code'].unique())
 ##########
 
 
@@ -94,10 +95,36 @@ def make_primary_plot(production_df,
                    filter_selected=None,
                    filter_category=None,
                    results_df=None,
-                   chart_type='Scatter',
+                   chart_type='Parallel Coordinates',
                    all_lines=True,
-                   median=False):
-    if chart_type == 'Scatter':
+                   sort_by='mean'):
+    if chart_type == 'Parallel Coordinates':
+        df = production_df.groupby(groupby_primary)[time_components].agg(lambda x: x.median())
+        df = df.reset_index()
+        for col in time_components:
+            df[col] = df[col].dt.total_seconds()/60/60
+        df[time_components] = np.round(df[time_components]) #px does not round automatically
+        df = df.sort_values(by='Tot. Time').reset_index(drop=True)
+        dimensions = list([
+                    dict(tickvals = list(df['Tot. Time']),
+                         ticktext = list(df[groupby_primary]),
+                         label = groupby_primary, values = df['Tot. Time']),
+                ])
+        for col in time_components:
+            dimensions.append(dict(label = col, values = df[col]))
+
+        fig = go.Figure(data=
+            go.Parcoords(
+                line = dict(color = df['Tot. Time'],
+                           colorscale = 'Electric',
+                           showscale = True,
+                           cmin = min(df['Tot. Time']),
+                           cmax = max(df['Tot. Time'])),
+                dimensions = dimensions,
+
+            )
+        )
+    elif chart_type == 'Scatter':
         dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column, volume_column]]\
              .median().sort_values(by=margin_column, ascending=False)).reset_index()
         dff['median'] = dff.groupby(groupby_secondary)[margin_column].\
@@ -121,42 +148,50 @@ def make_primary_plot(production_df,
             ),
     elif chart_type == 'Distribution':
         margin_column = "{} By {}".format(volume_column, time_column)
-        data = production_df
-        data[margin_column] = data[volume_column] / (data[time_column].dt.total_seconds()/60/60)
-        data = data.loc[data[margin_column] < np.inf]
-        data = data.loc[(data[margin_column] < data[margin_column].quantile(0.995))]
+        production_df[margin_column] = production_df[volume_column] / (production_df[time_column].dt.total_seconds()/60/60)
+        production_df = production_df.loc[production_df[margin_column] < np.inf]
+        production_df = production_df.loc[(production_df[margin_column] < production_df[margin_column].quantile(0.995))]
         fig = go.Figure()
         if all_lines:
-            data = data
+            data = production_df
         else:
-            data = data.loc[data['Cost Center'] == line]
+            data = production_df.loc[production_df['Cost Center'] == line]
         temp = pd.DataFrame(data.groupby([groupby_primary])[[margin_column, volume_column]]\
-             .median().sort_values(by=margin_column, ascending=False)).reset_index()
+         .median().sort_values(by=margin_column, ascending=False)).reset_index()
         temp2 = pd.DataFrame(data.groupby([groupby_primary])[[margin_column, volume_column]]\
              .mean().sort_values(by=margin_column, ascending=False)).reset_index()
         data['median'] = temp.groupby(groupby_primary)[margin_column].\
                 transform('median')
         data['mean']  = temp2.groupby(groupby_primary)[margin_column].\
                 transform('mean')
-        if median:
+        if sort_by == 'median':
             data = data.sort_values(['median', margin_column],
                 ascending=False).reset_index(drop=True)
         else:
             data = data.sort_values(['mean', margin_column],
                 ascending=False).reset_index(drop=True)
         data['Site'] = ''
+        if sort_by == 'mean':
+            products = list(data.groupby(groupby_primary)[margin_column].mean().sort_values().index)
+        elif sort_by == 'median':
+            products = list(data.groupby(groupby_primary)[margin_column].median().sort_values().index)
+        elif sort_by == 'std':
+            products = list(data.groupby(groupby_primary)[margin_column].std().sort_values().index)
+        for index, product in enumerate(products):
 
-        for index, product in enumerate(data[groupby_primary].unique()):
-            if median:
-                name = 'Avg: {:.2f}, {}'.format(temp.iloc[index][margin_column], temp.iloc[index][groupby_primary])
-            else:
-                name = 'Avg: {:.2f}, {}'.format(temp2.iloc[index][margin_column], temp2.iloc[index][groupby_primary])
-            fig.add_trace(go.Violin(x=data.loc[data[groupby_primary] == product]['Site'],
-                                    y=data.loc[data[groupby_primary] == product][margin_column],
+            if sort_by == 'median':
+                name = 'Avg: {:.2f}, {}'.format(temp.loc[temp[groupby_primary] == product][margin_column].values[0], product)
+            elif sort_by =='mean':
+                name = 'Avg: {:.2f}, {}'.format(temp2.loc[temp2[groupby_primary] == product][margin_column].values[0], product)
+            elif sort_by =='std':
+                name = 'Std: {:.2f}, {}'.format(data.loc[data[groupby_primary] == product][margin_column].std(), product)
+            fig.add_trace(go.Violin(y=data.loc[data[groupby_primary] == product]['Site'],
+                                    x=data.loc[data[groupby_primary] == product][margin_column],
                                     name=name,
                                     side='positive')
                          )
-        fig.update_traces(meanline_visible=True, orientation='v')
+        fig.update_traces(meanline_visible=True, orientation='h')
+        fig.update_xaxes(rangemode="nonnegative")
 
 
     elif "vs" in margin_column:
@@ -176,21 +211,40 @@ def make_primary_plot(production_df,
 
     fig.layout.clickmode = 'event+select'
     fig.update_layout({
+            "height": 600,
             "plot_bgcolor": "#FFFFFF",
             "paper_bgcolor": "#FFFFFF",
-            "title": '{}'.format(margin_column),
-            "yaxis.title": "{}".format(margin_column),
-            "xaxis.title": "{}".format(groupby_primary),
-            "height": 600,
-            "margin": dict(
-                   l=0,
-                   r=0,
-                   b=0,
-                   t=30,
-                   pad=4
-),
-            "xaxis.tickfont.size": 8,
-            })
+    }
+    )
+    if chart_type != 'Parallel Coordinates':
+        if chart_type != 'Distribution':
+            fig.update_layout({
+                "title": '{}'.format(margin_column),
+                "yaxis.title": "{}".format(margin_column),
+                "xaxis.title": "{}".format(groupby_primary),
+                "margin": dict(
+                       l=0,
+                       r=0,
+                       b=0,
+                       t=30,
+                       pad=4
+    ),
+                "xaxis.tickfont.size": 8,
+                })
+        else:
+            fig.update_layout({
+                    "title": '{}'.format(margin_column),
+                    "xaxis.title": "{}".format(margin_column),
+                    "yaxis.title": "{}".format(groupby_primary),
+                    "margin": dict(
+                           l=0,
+                           r=0,
+                           b=0,
+                           t=30,
+                           pad=4
+        ),
+                    "xaxis.tickfont.size": 8,
+                    })
     return fig
 
 def make_secondary_plot(production_df,
@@ -202,6 +256,7 @@ def make_secondary_plot(production_df,
                    results_df=None,
                    chart_type='time'):
     if chart_type == 'time':
+
         production_df = production_df.sort_values(dates[-1]).reset_index()
         fig = px.line(production_df.loc[production_df[groupby_secondary].dropna().index],
               x=dates[-1], y=volume_column, color=groupby_secondary)
@@ -466,14 +521,14 @@ VISUALIZATION = html.Div([
     dcc.Dropdown(id='primary_dropdown',
                  options=[{'label': i, 'value': i} for i in
                            descriptors],
-                 value=descriptors[-3],
+                 value='Technology',
                  multi=False,
                  className="dcc_control"),
     html.P('Groupby Secondary'),
     dcc.Dropdown(id='secondary_dropdown',
                  options=[{'label': i, 'value': i} for i in
                            descriptors],
-                 value=descriptors[2],
+                 value='Cost Center',
                  multi=False,
                  className="dcc_control"),
     html.P('Process Times'),
@@ -486,8 +541,8 @@ VISUALIZATION = html.Div([
     html.P('Graph Type'),
     dcc.RadioItems(id='distribution',
                  options=[{'label': i, 'value': i} for i in
-                           ['Scatter', 'Distribution']],
-                 value='Scatter',
+                           ['Scatter', 'Distribution', 'Parallel Coordinates']],
+                 value='Parallel Coordinates',
                  className="dcc_control"),
       ],style={'max-height': '500px',
                'margin-top': '20px'}
