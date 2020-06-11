@@ -66,7 +66,7 @@ dates = ['Batch Completion Date',
  'Min Date',
  'Max Date']
 
-production_df = pd.read_csv('data/time_series_data.csv', parse_dates=dates)
+production_df = pd.read_csv('data/temp.csv', parse_dates=dates)
 descriptors = production_df.columns[1:11]
 time_components = [i for i in production_df.columns if 'Tot.' in i]
 for col in time_components:
@@ -508,13 +508,13 @@ VISUALIZATION = html.Div([
     dcc.Dropdown(id='filter_dropdown_1',
                  options=[{'label': i, 'value': i} for i in
                             descriptors],
-                 value=descriptors[2],
+                 value=descriptors[0],
                  multi=False,
                  className="dcc_control"),
     dcc.Dropdown(id='filter_dropdown_2',
                  options=[{'label': i, 'value': i} for i in
-                            production_df[descriptors[2]].unique()],
-                 value=production_df[descriptors[2]].unique(),
+                            production_df[descriptors[0]].unique()],
+                 value=production_df[descriptors[0]].unique(),
                  multi=True,
                  className="dcc_control"),
     html.P('Groupby Primary'),
