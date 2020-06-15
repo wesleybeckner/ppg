@@ -87,16 +87,16 @@ def make_primary_plot(production_df,
                    filter_selected=None,
                    filter_category=None,
                    results_df=None,
-                   chart_type='Parallel Coordinates',
+                   chart_type='Parallel Coordinates (Time)',
                    all_lines=True,
                    sort_by='mean',
                    rate=True,
                    quant=[0.02, 0.98]):
     ### Preprocessing
-    if (rate) and (chart_type != 'Parallel Coordinates'):
+    if (rate) and (chart_type != 'Parallel Coordinates (Time)'):
         margin_column = "{} By {}".format(volume_column, time_column)
         production_df[margin_column] = production_df[volume_column] / (production_df[time_column].dt.total_seconds()/60/60)
-    elif chart_type != 'Parallel Coordinates':
+    elif chart_type != 'Parallel Coordinates (Time)':
         margin_column = "{}".format(time_column)
         production_df[margin_column] = production_df[time_column].dt.total_seconds()/60/60
     production_df = production_df.loc[production_df[margin_column] < np.inf]
@@ -106,7 +106,7 @@ def make_primary_plot(production_df,
                production_df[margin_column].quantile(quant[0]))]
 
     ### Charts
-    if chart_type == 'Parallel Coordinates':
+    if chart_type == 'Parallel Coordinates (Time)':
         df = production_df.groupby(groupby_primary)[time_components].agg(lambda x: x.median())
         df = df.reset_index()
         for col in time_components:
@@ -132,7 +132,8 @@ def make_primary_plot(production_df,
 
             )
         )
-    elif chart_type == 'Scatter':
+    elif chart_type == 'Scatter (Rate)':
+
         dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column, volume_column]]\
              .median().sort_values(by=margin_column, ascending=False)).reset_index()
         dff['median'] = dff.groupby(groupby_secondary)[margin_column].\
@@ -141,6 +142,8 @@ def make_primary_plot(production_df,
         dff = dff.sort_values(['median', margin_column],
             ascending=False).reset_index(drop=True)
         dff = dff[dff.columns[:-1]]
+        if groupby_primary == 'Cost Center':
+            dff[groupby_primary] = '_' + dff[groupby_primary] + ' '
 
         fig = go.Figure()
 
@@ -155,7 +158,7 @@ def make_primary_plot(production_df,
             fig.add_trace(
                 data
             ),
-    elif chart_type == 'Distribution':
+    elif chart_type == 'Distribution (Rate)':
         fig = go.Figure()
         if all_lines:
             data = production_df
@@ -221,8 +224,8 @@ def make_primary_plot(production_df,
             "paper_bgcolor": "#FFFFFF",
     }
     )
-    if chart_type != 'Parallel Coordinates':
-        if chart_type != 'Distribution':
+    if chart_type != 'Parallel Coordinates (Time)':
+        if chart_type != 'Distribution (Rate)':
             fig.update_layout({
                 "title": '{}'.format(margin_column),
                 "yaxis.title": "{}".format(margin_column),
@@ -263,8 +266,8 @@ def make_secondary_plot(production_df,
     if chart_type == 'time':
 
         production_df = production_df.sort_values(dates[-1]).reset_index()
-        fig = px.line(production_df.loc[production_df[groupby_secondary].dropna().index],
-              x=dates[-1], y=volume_column, color=groupby_secondary)
+        fig = px.line(production_df.loc[production_df[groupby_primary].dropna().index],
+              x=dates[-1], y=volume_column, color=groupby_primary)
     else: fig = px.violin(production_df,
                     y=margin_column,
                     x=groupby_primary,
@@ -275,7 +278,7 @@ def make_secondary_plot(production_df,
                 # "title": '{} by {}'.format(volume_column,
                 #  dates[-1]),
                 "yaxis.title": "{}".format(volume_column),
-                # "height": 400,
+                "height": 300,
                 "margin": dict(
                        l=0,
                        r=0,
@@ -554,8 +557,8 @@ VISUALIZATION = html.Div([
     html.P('Graph Type'),
     dcc.RadioItems(id='distribution',
                  options=[{'label': i, 'value': i} for i in
-                           ['Scatter', 'Distribution', 'Parallel Coordinates']],
-                 value='Parallel Coordinates',
+                           ['Scatter (Rate)', 'Distribution (Rate)', 'Parallel Coordinates (Time)']],
+                 value='Parallel Coordinates (Time)',
                  className="dcc_control"),
       ],style={'max-height': '500px',
                'margin-top': '20px'}
