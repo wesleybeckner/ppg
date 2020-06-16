@@ -90,13 +90,16 @@ def make_primary_plot(production_df,
                    chart_type='Parallel Coordinates (Time)',
                    all_lines=True,
                    sort_by='mean',
-                   rate=True,
+                   data_type='Rate (Gal/Hr)',
                    quant=[0.02, 0.98],
                    dist_cutoff=2):
     ### Preprocessing
-    if (rate) and (chart_type != 'Parallel Coordinates (Time)'):
+    if (data_type == 'Rate (Gal/Hr)') and (chart_type != 'Parallel Coordinates (Time)'):
         margin_column = "{} By {}".format(volume_column, time_column)
         production_df[margin_column] = production_df[volume_column] / (production_df[time_column].dt.total_seconds()/60/60)
+    elif data_type == 'Volume (Gal)':
+        margin_column = "{}".format(volume_column)
+        production_df[margin_column] = production_df[volume_column]
     elif chart_type != 'Parallel Coordinates (Time)':
         margin_column = "{}".format(time_column)
         production_df[margin_column] = production_df[time_column].dt.total_seconds()/60/60
@@ -133,9 +136,13 @@ def make_primary_plot(production_df,
 
             )
         )
-    elif chart_type == 'Scatter (Rate)':
-        dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column, volume_column]]\
-             .median().sort_values(by=margin_column, ascending=False)).reset_index()
+    elif chart_type == 'Scatter':
+        if margin_column == volume_column:
+            dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column]]\
+                 .median().sort_values(by=margin_column, ascending=False)).reset_index()
+        else:
+            dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column, volume_column]]\
+                 .median().sort_values(by=margin_column, ascending=False)).reset_index()
         dff['median'] = dff.groupby(groupby_secondary)[margin_column].\
                 transform('median')
 
@@ -146,19 +153,31 @@ def make_primary_plot(production_df,
             dff[groupby_primary] = '_' + dff[groupby_primary] + ' '
 
         fig = go.Figure()
-
-        for data in px.scatter(
-                dff,
-                x=groupby_primary,
-                y=margin_column,
-                size=volume_column,
-                color=groupby_secondary,
-                hover_data=[groupby_primary],
-                opacity=0.6).data:
-            fig.add_trace(
-                data
-            ),
-    elif chart_type == 'Distribution (Rate)':
+        if margin_column == volume_column:
+            for data in px.scatter(
+                    dff,
+                    x=groupby_primary,
+                    y=margin_column,
+                    size=margin_column,
+                    color=groupby_secondary,
+                    hover_data=[groupby_primary],
+                    opacity=0.6).data:
+                fig.add_trace(
+                    data
+                ),
+        else:
+            for data in px.scatter(
+                    dff,
+                    x=groupby_primary,
+                    y=margin_column,
+                    size=volume_column,
+                    color=groupby_secondary,
+                    hover_data=[groupby_primary],
+                    opacity=0.6).data:
+                fig.add_trace(
+                    data
+                ),
+    elif chart_type == 'Distribution':
         dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column]]\
                      .median().sort_values(by=margin_column, ascending=False)).reset_index()
         dff['median'] = dff.groupby(groupby_primary)[margin_column].\
@@ -246,7 +265,7 @@ def make_primary_plot(production_df,
     }
     )
     if chart_type != 'Parallel Coordinates (Time)':
-        if chart_type != 'Distribution (Rate)':
+        if chart_type != 'Distribution':
             fig.update_layout({
                 "title": '{}'.format(margin_column),
                 "yaxis.title": "{}".format(margin_column),
@@ -577,10 +596,16 @@ VISUALIZATION = html.Div([
     #     value=[.1, .9]
     # ),
     html.P('Graph Type'),
-    dcc.RadioItems(id='distribution',
+    dcc.Dropdown(id='distribution',
                  options=[{'label': i, 'value': i} for i in
-                           ['Scatter (Rate)', 'Distribution (Rate)', 'Parallel Coordinates (Time)']],
+                           ['Scatter', 'Distribution', 'Parallel Coordinates (Time)']],
                  value='Parallel Coordinates (Time)',
+                 className="dcc_control"),
+    html.P('Data Type'),
+    dcc.Dropdown(id='data-type',
+                 options=[{'label': i, 'value': i} for i in
+                           ['Rate (Gal/Hr)', 'Volume (Gal)', 'Time (Hr)']],
+                 value='Time (Hr)',
                  className="dcc_control"),
       ],style={'max-height': '500px',
                'margin-top': '20px'}
@@ -812,7 +837,7 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
      Input('distribution', 'value')]
 )
 def update_filter(category, type):
-    if type == 'Distribution (Rate)':
+    if type == 'Distribution':
         return [{'label': i, 'value': i} for i in production_df[category].unique()],\
         production_df[category].unique()[0], False
     else:
@@ -857,13 +882,14 @@ def margin_column(time_column):
     Input('secondary_dropdown', 'value'),
     Input('secondary_plot', 'relayoutData'),
     Input('time_dropdown', 'value'),
-    Input('distribution', 'value')
+    Input('distribution', 'value'),
+    Input('data-type', 'value')
     ]
 )
 def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
                         groupby_secondary, relayoutData, time_column,
-                        chart_type):
+                        chart_type, data_type):
     if type(filter_selected) == str:
         filter_selected = [filter_selected]
     production_df = pd.read_json(production_df, convert_dates=dates)
@@ -884,11 +910,13 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                                               (production_df[dates[-1]] > start)]
         return make_primary_plot(production_df,
           margin_column, volume_column, groupby_primary,
-          groupby_secondary, time_column, chart_type=chart_type)
+          groupby_secondary, time_column, chart_type=chart_type,
+          data_type=data_type)
 
     return make_primary_plot(production_df,
       margin_column, volume_column, groupby_primary,
-      groupby_secondary, time_column, chart_type=chart_type)
+      groupby_secondary, time_column, chart_type=chart_type,
+      data_type=data_type)
 
 @app.callback(
     Output('secondary_plot', 'figure'),
