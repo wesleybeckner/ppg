@@ -47,7 +47,7 @@ server = app.server
 ##########
 
 ########## PPG2
-dates = ['Batch Completion Date']
+dates = ['Batch Completion Date', 'Min Date', 'Max Date']
 production_df = pd.read_csv('data/cleveland_filtered.csv', parse_dates=dates)
 descriptors = ['Batch Completion Date', 'Batch Number', 'Tank Number',
        'Cost Center', 'Technology', 'Product', 'Inventory Category',
@@ -95,13 +95,13 @@ def make_primary_plot(production_df,
                    dist_cutoff=2):
     ### Preprocessing
     if (data_type == 'Rate (Gal/Hr)') and (chart_type != 'Parallel Coordinates (Time)'):
-        margin_column = "{} By {}".format(volume_column, time_column)
+        margin_column = "{} By {} (Gal/Hr)".format(volume_column, time_column)
         production_df[margin_column] = production_df[volume_column] / (production_df[time_column].dt.total_seconds()/60/60)
     elif data_type == 'Volume (Gal)':
-        margin_column = "{}".format(volume_column)
+        margin_column = "{} (Gal)".format(volume_column)
         production_df[margin_column] = production_df[volume_column]
     elif chart_type != 'Parallel Coordinates (Time)':
-        margin_column = "{}".format(time_column)
+        margin_column = "{} (Hr)".format(time_column)
         production_df[margin_column] = production_df[time_column].dt.total_seconds()/60/60
     production_df = production_df.loc[production_df[margin_column] < np.inf]
     production_df = production_df.loc[(production_df[margin_column] <
@@ -191,7 +191,7 @@ def make_primary_plot(production_df,
         for index in dff.index:
             trace = production_df.loc[(production_df[groupby_primary] == dff[groupby_primary][index]) &
                      (production_df[groupby_secondary] == dff[groupby_secondary][index])]
-            
+
             trace["Site"] = " "
             if trace.shape[0] > dist_cutoff:
                 name = 'N: {}, Avg: {:.0f}, {}, {}'.format(trace.shape[0], dff[margin_column][index],
@@ -304,23 +304,77 @@ def make_secondary_plot(production_df,
                    filter_selected=None,
                    filter_category=None,
                    results_df=None,
-                   chart_type='time'):
-    if chart_type == 'time':
+                   chart_type='Parallel Coordinates (Time)',
+                   data_type='Rate (Gal/Hr)',
+                   quant=[0.02, 0.98],
+                   dist_cutoff=2):
+    ### Preprocessing
+    if (data_type == 'Rate (Gal/Hr)') and (chart_type != 'Parallel Coordinates (Time)'):
+        margin_column = "{} By {} (Gal/Hr)".format(volume_column, time_column)
+        production_df[margin_column] = production_df[volume_column] / (production_df[time_column].dt.total_seconds()/60/60)
+    elif data_type == 'Volume (Gal)':
+        margin_column = "{} (Gal)".format(volume_column)
+        production_df[margin_column] = production_df[volume_column]
+    elif chart_type != 'Parallel Coordinates (Time)':
+        margin_column = "{} (Hr)".format(time_column)
+        production_df[margin_column] = production_df[time_column].dt.total_seconds()/60/60
+    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+               production_df[margin_column].quantile(quant[1])) &
+              (production_df[margin_column] >
+               production_df[margin_column].quantile(quant[0]))]
+    if chart_type == 'Distribution':
+        colors = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F3',\
+                  '#FF6692', '#B6E880', '#FF97FF', '#FECB52']
+        colors_cycle = cycle(colors)
+        dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column]]\
+                 .median().sort_values(by=margin_column, ascending=False)).reset_index()
+        dff['median'] = dff.groupby(groupby_primary)[margin_column].\
+                transform('median')
 
+        dff = dff.sort_values(['median', margin_column],
+            ascending=False).reset_index(drop=True)
+        dff = dff[dff.columns[:-1]]
+        fig = go.Figure()
+
+        for index in dff.index:
+            trace = production_df.loc[(production_df[groupby_primary] == dff[groupby_primary][index]) &
+                     (production_df[groupby_secondary] == dff[groupby_secondary][index])]
+            if trace.shape[0] > dist_cutoff:
+                trace = trace.reset_index(drop=True)
+                name = 'N: {}, Avg: {:.0f}, {}, {}'.format(trace.shape[0], dff[margin_column][index],
+                            dff[groupby_primary][index], dff[groupby_secondary][index])
+                color = next(colors_cycle)
+                for sub_index in trace.index:
+                    x1 = trace['Min Date'][sub_index]
+                    x2 = trace['Max Date'][sub_index]
+                    y1 = trace[margin_column][sub_index]
+                    y2 = trace[margin_column][sub_index]
+                    if sub_index == 0:
+                        legend = True
+                    else:
+                        legend = False
+                    fig.add_trace(go.Scatter(x=[x1, x2],
+                                          y=[y1, y2],
+                                          name=name,
+                                             showlegend=legend,
+                                             legendgroup=name,
+                                            marker=dict(size=8, color=[color, color]),
+                                             line=dict(color=color),
+
+                                            mode='lines+markers'))
+    else:
         production_df = production_df.sort_values(dates[-1]).reset_index()
         fig = px.scatter(production_df.loc[production_df[groupby_primary].dropna().index],
               x=dates[-1], y=volume_column, color=groupby_primary)
-    else: fig = px.violin(production_df,
-                    y=margin_column,
-                    x=groupby_primary,
-                    color=groupby_secondary)#, violinmode='overlay')
     fig.update_layout({
                 "plot_bgcolor": "#FFFFFF",
                 "paper_bgcolor": "#FFFFFF",
                 # "title": '{} by {}'.format(volume_column,
                 #  dates[-1]),
-                "yaxis.title": "{}".format(volume_column),
-                "height": 300,
+                "yaxis.title": "{}".format(margin_column),
+                "height": 400,
+                "legend_title_text": " ",
                 "margin": dict(
                        l=0,
                        r=0,
@@ -737,7 +791,7 @@ html.Div(className='pretty_container', children=[KPIS,
                                            margin_column,
                                            groupby_primary,
                                            groupby_secondary,
-                                           chart_type='time')
+                                           chart_type='Parallel Coordinates (Time)')
                         ),
             html.Div([
             dcc.Loading(
@@ -775,9 +829,16 @@ html.Div(className='pretty_container', children=[KPIS,
     ],
     ), HIDDEN,
     html.Div([], id='clickdump'),
+    # html.Pre(id='relayout-data'),
 ],
 )
 app.config.suppress_callback_exceptions = True
+
+# @app.callback(
+#     Output('relayout-data', 'children'),
+#     [Input('primary_plot', 'relayoutData')])
+# def display_relayout_data(relayoutData):
+#     return json.dumps(relayoutData, indent=2)
 
 @app.callback(
     [Output('kpi-1', 'children'),
@@ -840,7 +901,7 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
 def update_filter(category, type):
     if type == 'Distribution':
         return [{'label': i, 'value': i} for i in production_df[category].unique()],\
-        production_df[category].unique()[0], False
+        production_df[category].unique()[-2], False
     else:
         return [{'label': i, 'value': i} for i in production_df[category].unique()],\
         list(production_df[category].unique()), True
@@ -930,12 +991,14 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
     Input('margin-upload', 'children'),
     Input('primary_dropdown', 'value'),
     Input('secondary_dropdown', 'value'),
-    Input('time_dropdown', 'value')
+    Input('time_dropdown', 'value'),
+    Input('distribution', 'value'),
+    Input('data-type', 'value'),
     ]
 )
 def display_secondary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
-                        groupby_secondary, time_column):
+                        groupby_secondary, time_column, chart_type, data_type):
     if type(filter_selected) == str:
         filter_selected = [filter_selected]
     production_df = pd.read_json(production_df, convert_dates=dates)
@@ -950,7 +1013,7 @@ def display_secondary_plot(filter_category, filter_selected, rows, data, tab,
         production_df[margin_column].quantile(0.995))]
     return make_secondary_plot(production_df,
         margin_column, groupby_primary,
-        groupby_secondary, chart_type='time')
+        groupby_secondary, chart_type=chart_type, data_type=data_type)
 
 # @app.callback(
 #     Output('tertiary_plot', 'figure'),
