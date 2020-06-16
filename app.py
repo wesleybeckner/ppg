@@ -158,13 +158,13 @@ def make_primary_plot(production_df,
             fig.add_trace(
                 data
             ),
-    elif chart_type == 'Distribution (Volume)':
-        dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[volume_column]]\
-                     .median().sort_values(by=volume_column, ascending=False)).reset_index()
-        dff['median'] = dff.groupby(groupby_primary)[volume_column].\
+    elif chart_type == 'Distribution (Rate)':
+        dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column]]\
+                     .median().sort_values(by=margin_column, ascending=False)).reset_index()
+        dff['median'] = dff.groupby(groupby_primary)[margin_column].\
                 transform('median')
 
-        dff = dff.sort_values(['median', volume_column],
+        dff = dff.sort_values(['median', margin_column],
             ascending=False).reset_index(drop=True)
         dff = dff[dff.columns[:-1]]
 
@@ -174,9 +174,9 @@ def make_primary_plot(production_df,
                      (production_df[groupby_secondary] == dff[groupby_secondary][index])]
             trace["Site"] = " "
             if trace.shape[0] > dist_cutoff:
-                name = 'Avg: {:.0f}, {}, {}'.format(dff[volume_column][index],
+                name = 'Avg: {:.0f}, {}, {}'.format(dff[margin_column][index],
                     dff[groupby_primary][index], dff[groupby_secondary][index])
-                fig.add_trace(go.Violin(x=trace[volume_column],
+                fig.add_trace(go.Violin(x=trace[margin_column],
                                   y=trace["Site"],
                                   name=name,
                                 side='positive'))
@@ -246,7 +246,7 @@ def make_primary_plot(production_df,
     }
     )
     if chart_type != 'Parallel Coordinates (Time)':
-        if chart_type != 'Distribution (Volume)':
+        if chart_type != 'Distribution (Rate)':
             fig.update_layout({
                 "title": '{}'.format(margin_column),
                 "yaxis.title": "{}".format(margin_column),
@@ -262,8 +262,8 @@ def make_primary_plot(production_df,
                 })
         else:
             fig.update_layout({
-                    "title": '{}'.format(volume_column),
-                    "xaxis.title": "{}".format(volume_column),
+                    "title": '{}'.format(margin_column),
+                    "xaxis.title": "{}".format(margin_column),
                     "yaxis.title": "{} + {}".format(groupby_primary,
                         groupby_secondary),
                     "margin": dict(
@@ -579,7 +579,7 @@ VISUALIZATION = html.Div([
     html.P('Graph Type'),
     dcc.RadioItems(id='distribution',
                  options=[{'label': i, 'value': i} for i in
-                           ['Scatter (Rate)', 'Distribution (Volume)', 'Parallel Coordinates (Time)']],
+                           ['Scatter (Rate)', 'Distribution (Rate)', 'Parallel Coordinates (Time)']],
                  value='Parallel Coordinates (Time)',
                  className="dcc_control"),
       ],style={'max-height': '500px',
@@ -812,7 +812,7 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
      Input('distribution', 'value')]
 )
 def update_filter(category, type):
-    if type == 'Distribution (Volume)':
+    if type == 'Distribution (Rate)':
         return [{'label': i, 'value': i} for i in production_df[category].unique()],\
         production_df[category].unique()[0], False
     else:
