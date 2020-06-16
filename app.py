@@ -191,9 +191,10 @@ def make_primary_plot(production_df,
         for index in dff.index:
             trace = production_df.loc[(production_df[groupby_primary] == dff[groupby_primary][index]) &
                      (production_df[groupby_secondary] == dff[groupby_secondary][index])]
+            
             trace["Site"] = " "
             if trace.shape[0] > dist_cutoff:
-                name = 'Avg: {:.0f}, {}, {}'.format(dff[margin_column][index],
+                name = 'N: {}, Avg: {:.0f}, {}, {}'.format(trace.shape[0], dff[margin_column][index],
                     dff[groupby_primary][index], dff[groupby_secondary][index])
                 fig.add_trace(go.Violin(x=trace[margin_column],
                                   y=trace["Site"],
