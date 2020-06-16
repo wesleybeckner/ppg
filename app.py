@@ -307,7 +307,7 @@ def make_secondary_plot(production_df,
     if chart_type == 'time':
 
         production_df = production_df.sort_values(dates[-1]).reset_index()
-        fig = px.line(production_df.loc[production_df[groupby_primary].dropna().index],
+        fig = px.scatter(production_df.loc[production_df[groupby_primary].dropna().index],
               x=dates[-1], y=volume_column, color=groupby_primary)
     else: fig = px.violin(production_df,
                     y=margin_column,
