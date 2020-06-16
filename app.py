@@ -91,7 +91,8 @@ def make_primary_plot(production_df,
                    all_lines=True,
                    sort_by='mean',
                    rate=True,
-                   quant=[0.02, 0.98]):
+                   quant=[0.02, 0.98],
+                   dist_cutoff=2):
     ### Preprocessing
     if (rate) and (chart_type != 'Parallel Coordinates (Time)'):
         margin_column = "{} By {}".format(volume_column, time_column)
@@ -133,7 +134,6 @@ def make_primary_plot(production_df,
             )
         )
     elif chart_type == 'Scatter (Rate)':
-
         dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column, volume_column]]\
              .median().sort_values(by=margin_column, ascending=False)).reset_index()
         dff['median'] = dff.groupby(groupby_secondary)[margin_column].\
@@ -158,46 +158,67 @@ def make_primary_plot(production_df,
             fig.add_trace(
                 data
             ),
-    elif chart_type == 'Distribution (Rate)':
-        fig = go.Figure()
-        if all_lines:
-            data = production_df
-        else:
-            data = production_df.loc[production_df['Cost Center'] == line]
-        temp = pd.DataFrame(data.groupby([groupby_primary])[[margin_column, volume_column]]\
-         .median().sort_values(by=margin_column, ascending=False)).reset_index()
-        temp2 = pd.DataFrame(data.groupby([groupby_primary])[[margin_column, volume_column]]\
-             .mean().sort_values(by=margin_column, ascending=False)).reset_index()
-        data['median'] = temp.groupby(groupby_primary)[margin_column].\
+    elif chart_type == 'Distribution (Volume)':
+        dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[volume_column]]\
+                     .median().sort_values(by=volume_column, ascending=False)).reset_index()
+        dff['median'] = dff.groupby(groupby_primary)[volume_column].\
                 transform('median')
-        data['mean']  = temp2.groupby(groupby_primary)[margin_column].\
-                transform('mean')
-        if sort_by == 'median':
-            data = data.sort_values(['median', margin_column],
-                ascending=False).reset_index(drop=True)
-        else:
-            data = data.sort_values(['mean', margin_column],
-                ascending=False).reset_index(drop=True)
-        data['Site'] = ''
-        if sort_by == 'mean':
-            products = list(data.groupby(groupby_primary)[margin_column].mean().sort_values().index)
-        elif sort_by == 'median':
-            products = list(data.groupby(groupby_primary)[margin_column].median().sort_values().index)
-        elif sort_by == 'std':
-            products = list(data.groupby(groupby_primary)[margin_column].std().sort_values().index)
-        for index, product in enumerate(products):
 
-            if sort_by == 'median':
-                name = 'Avg: {:.2f}, {}'.format(temp.loc[temp[groupby_primary] == product][margin_column].values[0], product)
-            elif sort_by =='mean':
-                name = 'Avg: {:.2f}, {}'.format(temp2.loc[temp2[groupby_primary] == product][margin_column].values[0], product)
-            elif sort_by =='std':
-                name = 'Std: {:.2f}, {}'.format(data.loc[data[groupby_primary] == product][margin_column].std(), product)
-            fig.add_trace(go.Violin(y=data.loc[data[groupby_primary] == product]['Site'],
-                                    x=data.loc[data[groupby_primary] == product][margin_column],
-                                    name=name,
-                                    side='positive')
-                         )
+        dff = dff.sort_values(['median', volume_column],
+            ascending=False).reset_index(drop=True)
+        dff = dff[dff.columns[:-1]]
+
+        fig = go.Figure()
+        for index in dff.index:
+            trace = production_df.loc[(production_df[groupby_primary] == dff[groupby_primary][index]) &
+                     (production_df[groupby_secondary] == dff[groupby_secondary][index])]
+            trace["Site"] = " "
+            if trace.shape[0] > dist_cutoff:
+                name = 'Avg: {:.0f}, {}, {}'.format(dff[volume_column][index],
+                    dff[groupby_primary][index], dff[groupby_secondary][index])
+                fig.add_trace(go.Violin(x=trace[volume_column],
+                                  y=trace["Site"],
+                                  name=name,
+                                side='positive'))
+        # fig = go.Figure()
+        # if all_lines:
+        #     data = production_df
+        # else:
+        #     data = production_df.loc[production_df['Cost Center'] == line]
+        # temp = pd.DataFrame(data.groupby([groupby_primary])[[margin_column, volume_column]]\
+        #  .median().sort_values(by=margin_column, ascending=False)).reset_index()
+        # temp2 = pd.DataFrame(data.groupby([groupby_primary])[[margin_column, volume_column]]\
+        #      .mean().sort_values(by=margin_column, ascending=False)).reset_index()
+        # data['median'] = temp.groupby(groupby_primary)[margin_column].\
+        #         transform('median')
+        # data['mean']  = temp2.groupby(groupby_primary)[margin_column].\
+        #         transform('mean')
+        # if sort_by == 'median':
+        #     data = data.sort_values(['median', margin_column],
+        #         ascending=False).reset_index(drop=True)
+        # else:
+        #     data = data.sort_values(['mean', margin_column],
+        #         ascending=False).reset_index(drop=True)
+        # data['Site'] = ''
+        # if sort_by == 'mean':
+        #     products = list(data.groupby(groupby_primary)[margin_column].mean().sort_values().index)
+        # elif sort_by == 'median':
+        #     products = list(data.groupby(groupby_primary)[margin_column].median().sort_values().index)
+        # elif sort_by == 'std':
+        #     products = list(data.groupby(groupby_primary)[margin_column].std().sort_values().index)
+        # for index, product in enumerate(products):
+        #
+        #     if sort_by == 'median':
+        #         name = 'Avg: {:.2f}, {}'.format(temp.loc[temp[groupby_primary] == product][margin_column].values[0], product)
+        #     elif sort_by =='mean':
+        #         name = 'Avg: {:.2f}, {}'.format(temp2.loc[temp2[groupby_primary] == product][margin_column].values[0], product)
+        #     elif sort_by =='std':
+        #         name = 'Std: {:.2f}, {}'.format(data.loc[data[groupby_primary] == product][margin_column].std(), product)
+        #     fig.add_trace(go.Violin(y=data.loc[data[groupby_primary] == product]['Site'],
+        #                             x=data.loc[data[groupby_primary] == product][margin_column],
+        #                             name=name,
+        #                             side='positive')
+        #                  )
         fig.update_traces(meanline_visible=True, orientation='h')
         fig.update_xaxes(rangemode="nonnegative")
 
@@ -225,7 +246,7 @@ def make_primary_plot(production_df,
     }
     )
     if chart_type != 'Parallel Coordinates (Time)':
-        if chart_type != 'Distribution (Rate)':
+        if chart_type != 'Distribution (Volume)':
             fig.update_layout({
                 "title": '{}'.format(margin_column),
                 "yaxis.title": "{}".format(margin_column),
@@ -241,9 +262,10 @@ def make_primary_plot(production_df,
                 })
         else:
             fig.update_layout({
-                    "title": '{}'.format(margin_column),
-                    "xaxis.title": "{}".format(margin_column),
-                    "yaxis.title": "{}".format(groupby_primary),
+                    "title": '{}'.format(volume_column),
+                    "xaxis.title": "{}".format(volume_column),
+                    "yaxis.title": "{} + {}".format(groupby_primary,
+                        groupby_secondary),
                     "margin": dict(
                            l=0,
                            r=0,
@@ -536,7 +558,7 @@ VISUALIZATION = html.Div([
     dcc.Dropdown(id='secondary_dropdown',
                  options=[{'label': i, 'value': i} for i in
                            descriptors],
-                 value='Cost Center',
+                 value='Tank Number',
                  multi=False,
                  className="dcc_control"),
     html.P('Process Times'),
@@ -557,7 +579,7 @@ VISUALIZATION = html.Div([
     html.P('Graph Type'),
     dcc.RadioItems(id='distribution',
                  options=[{'label': i, 'value': i} for i in
-                           ['Scatter (Rate)', 'Distribution (Rate)', 'Parallel Coordinates (Time)']],
+                           ['Scatter (Rate)', 'Distribution (Volume)', 'Parallel Coordinates (Time)']],
                  value='Parallel Coordinates (Time)',
                  className="dcc_control"),
       ],style={'max-height': '500px',
@@ -754,6 +776,8 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
                         groupby_secondary, clickData, selectedData,
                         relayoutData, time_column):
+    if type(filter_selected) == str:
+        filter_selected = [filter_selected]
     production_df = pd.read_json(production_df, convert_dates=dates)
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
@@ -782,12 +806,28 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
 
 @app.callback(
     [Output('filter_dropdown_2', 'options'),
-     Output('filter_dropdown_2', 'value')],
-    [Input('filter_dropdown_1', 'value')]
+     Output('filter_dropdown_2', 'value'),
+     Output('filter_dropdown_2', 'multi'),],
+    [Input('filter_dropdown_1', 'value'),
+     Input('distribution', 'value')]
 )
-def update_filter(category):
-    return [{'label': i, 'value': i} for i in production_df[category].unique()],\
-        list(production_df[category].unique())
+def update_filter(category, type):
+    if type == 'Distribution (Volume)':
+        return [{'label': i, 'value': i} for i in production_df[category].unique()],\
+        production_df[category].unique()[0], False
+    else:
+        return [{'label': i, 'value': i} for i in production_df[category].unique()],\
+        list(production_df[category].unique()), True
+
+# @app.callback(
+#      Output('filter_dropdown_2', 'multi'),
+#     [Input('distribution', 'value')]
+# )
+# def update_filter(type):
+#     if type == 'Distribution (Volume)':
+#         return False
+#     else:
+#         return True
 
 @app.callback(
     Output('margin-upload', 'children'),
@@ -824,7 +864,8 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
                         groupby_secondary, relayoutData, time_column,
                         chart_type):
-
+    if type(filter_selected) == str:
+        filter_selected = [filter_selected]
     production_df = pd.read_json(production_df, convert_dates=dates)
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
@@ -866,7 +907,8 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
 def display_secondary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
                         groupby_secondary, time_column):
-
+    if type(filter_selected) == str:
+        filter_selected = [filter_selected]
     production_df = pd.read_json(production_df, convert_dates=dates)
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
