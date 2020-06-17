@@ -66,7 +66,7 @@ dates = ['Batch Completion Date',
  'TO.90 Approval Date',
  'Min Date',
  'Max Date']
-production_df = pd.read_csv('data/cleveland.csv', parse_dates=dates)
+production_df = pd.read_csv('data/cleveland_filtered.csv', parse_dates=dates)
 descriptors = ['Batch Completion Date', 'Batch Number', 'Tank Number',
        'Cost Center', 'Technology', 'Product', 'Inventory Category',
        'Equalization Lot Number', 'Parent Batch Planned Qty',
