@@ -48,7 +48,25 @@ server = app.server
 
 ########## PPG2
 dates = ['Batch Completion Date', 'Min Date', 'Max Date']
-production_df = pd.read_csv('data/cleveland_filtered.csv', parse_dates=dates)
+dates = ['Batch Completion Date',
+ 'Move Order Created',
+ 'First Inv Pick',
+ 'Last Inv Pick',
+ 'First Formulated Consumed Material',
+ 'Last Formulated Consumed Material',
+ 'First QC Consumed Material',
+ 'Last QC Consumed Material',
+ 'TO.80 Log Date',
+ 'Preship And Fill Date',
+ 'TO.80 Approval Date',
+ 'Min SKU WIP Start Date',
+ 'First WIP Completion Transaction',
+ 'Last WIP Completion Transaction',
+ 'TO.90 Log Date',
+ 'TO.90 Approval Date',
+ 'Min Date',
+ 'Max Date']
+production_df = pd.read_csv('data/cleveland.csv', parse_dates=dates)
 descriptors = ['Batch Completion Date', 'Batch Number', 'Tank Number',
        'Cost Center', 'Technology', 'Product', 'Inventory Category',
        'Equalization Lot Number', 'Parent Batch Planned Qty',
@@ -297,6 +315,7 @@ def make_primary_plot(production_df,
                     })
     return fig
 
+
 def make_secondary_plot(production_df,
                    margin_column,
                    groupby_primary,
@@ -307,7 +326,9 @@ def make_secondary_plot(production_df,
                    chart_type='Parallel Coordinates (Time)',
                    data_type='Rate (Gal/Hr)',
                    quant=[0.02, 0.98],
-                   dist_cutoff=2):
+                   dist_cutoff=2,
+                   start_date='First Formulated Consumed Material',
+                   end_date='TO.80 Log Date'):
     ### Preprocessing
     if (data_type == 'Rate (Gal/Hr)') and (chart_type != 'Parallel Coordinates (Time)'):
         margin_column = "{} By {} (Gal/Hr)".format(volume_column, time_column)
@@ -346,8 +367,8 @@ def make_secondary_plot(production_df,
                             dff[groupby_primary][index], dff[groupby_secondary][index])
                 color = next(colors_cycle)
                 for sub_index in trace.index:
-                    x1 = trace['Min Date'][sub_index]
-                    x2 = trace['Max Date'][sub_index]
+                    x1 = trace[start_date][sub_index]
+                    x2 = trace[end_date][sub_index]
                     y1 = trace[margin_column][sub_index]
                     y2 = trace[margin_column][sub_index]
                     if sub_index == 0:
@@ -663,7 +684,8 @@ VISUALIZATION = html.Div([
                  value='Time (Hr)',
                  className="dcc_control"),
       ],style={'max-height': '500px',
-               'margin-top': '20px'}
+               'margin-top': '20px',
+               'overflow': 'scroll'}
 )
 
 KPIS = html.Div([
