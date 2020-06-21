@@ -722,13 +722,13 @@ VISUALIZATION = html.Div([
     dcc.Dropdown(id='distribution',
                  options=[{'label': i, 'value': i} for i in
                            ['Scatter', 'Distribution', 'Parallel Coordinates (Time)']],
-                 value='Parallel Coordinates (Time)',
+                 value='Distribution',
                  className="dcc_control"),
     html.P('Data Type'),
     dcc.Dropdown(id='data-type',
                  options=[{'label': i, 'value': i} for i in
                            ['Rate (Gal/Hr)', 'Volume (Gal)', 'Time (Hr)']],
-                 value='Time (Hr)',
+                 value='Rate (Gal/Hr)',
                  className="dcc_control"),
       ],style={'max-height': '500px',
                'margin-top': '20px',
@@ -1009,13 +1009,30 @@ def display_violin_plot(tab):
     Input('secondary_plot', 'clickData'),
     Input('primary_plot', 'selectedData'),
     Input('secondary_plot', 'relayoutData'),
-    Input('time_dropdown', 'value')
+    Input('time_dropdown', 'value'),
+    Input('time_dropdown_analytics', 'value'),
     ]
 )
 def display_opportunity(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
                         groupby_secondary, clickData, selectedData,
-                        relayoutData, time_column):
+                        relayoutData, time_column, time):
+    if (tab == 'tab-2') and (data is not None) and (len(rows) > 0):
+        total_volume = pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum()/1e6
+        extra_volume = pd.DataFrame(data).iloc[rows]['Volume Opportunity, Gal'].sum()/1e6
+        volume_increase = (total_volume + extra_volume) / total_volume * 100
+
+        total_batches = pd.DataFrame(data)['Count'].sum()
+        mean_batch_size = pd.DataFrame(data).iloc[rows]['Parent Batch Actual Qty, mean'].mean()/1e6
+        extra_batches = extra_volume / mean_batch_size
+        batch_increase = (total_batches + extra_batches) / total_batches * 100
+
+        rate = pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum() / pd.DataFrame(data)['{}, sum'.format(time)].sum()
+        new_rate = (pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum() + (extra_volume*1e6) )/ pd.DataFrame(data)['{}, sum'.format(time)].sum()
+        rate_increase = new_rate / rate * 100
+        return "{:.1f} M Gal / Hr".format(new_rate), \
+        "+ {:.0f} Batches ({:.2f}%)".format(extra_batches, batch_increase), \
+        "+ {:.2f} M Gal ({:.2f}%)".format(extra_volume, volume_increase)
     print(rows)
     print(' ')
     print(pd.DataFrame(data).head())
@@ -1074,17 +1091,27 @@ def update_filter(category, type):
 
 @app.callback(
     Output('margin-upload', 'children'),
-    [Input('time_dropdown', 'value')]
+    [Input('time_dropdown', 'value'),
+    Input('time_dropdown_analytics', 'value'),
+    Input('tabs-control', 'value'),]
 )
-def margin_column(time_column):
-    return "{} By {}".format(volume_column, time_column)
+def margin_column(time_column, time, tab):
+    if tab == 'tab-2':
+        return "{} By {}".format(volume_column, time)
+    else:
+        return "{} By {}".format(volume_column, time_column)
 
 @app.callback(
     Output('margin-label', 'children'),
-    [Input('time_dropdown', 'value')]
+    [Input('time_dropdown', 'value'),
+    Input('time_dropdown_analytics', 'value'),
+    Input('tabs-control', 'value'),]
 )
-def margin_column(time_column):
-    return "{} By {}".format(volume_column, time_column)
+def margin_column(time_column, time, tab):
+    if tab == 'tab-2':
+        return "{} By {}".format(volume_column, time)
+    else:
+        return "{} By {}".format(volume_column, time_column)
 
 ### FIGURES ###
 @app.callback(
