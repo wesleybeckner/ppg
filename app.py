@@ -47,7 +47,6 @@ server = app.server
 ##########
 
 ########## PPG2
-dates = ['Batch Completion Date', 'Min Date', 'Max Date']
 dates = ['Batch Completion Date',
  'Move Order Created',
  'First Inv Pick',
@@ -66,18 +65,19 @@ dates = ['Batch Completion Date',
  'TO.90 Approval Date',
  'Min Date',
  'Max Date']
+dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
 production_df = pd.read_csv('data/cleveland_filtered_with_null.csv', parse_dates=dates)
 descriptors = ['Batch Completion Date', 'Batch Number', 'Tank Number',
        'Cost Center', 'Technology', 'Product', 'Inventory Category',
        'Equalization Lot Number', 'Parent Batch Planned Qty',
-       'Parent Batch Actual Qty']
+       'Parent Batch Actual Qty', 'Family']
 time_components = ['PA Time',
- 'Formulated CM Time',
- 'QC Adj CM Time',
+ # 'Formulated CM Time',
+ # 'QC Adj CM Time',
  'Tot. CM Time',
  '80 appv.',
  'Filling Time',
- '90 appv.',
+ # '90 appv.',
  'Tot. Time']
 for col in time_components:
     production_df[col] = pd.to_timedelta(production_df[col])
@@ -93,7 +93,7 @@ production_df = production_df.loc[production_df[margin_column] < 1e2]
 ##########
 
 
-production_df[descriptors] = production_df[descriptors].astype(str)
+# production_df[descriptors] = production_df[descriptors].astype(str)
 production_json = production_df.to_json()
 
 def find_opportunity(df,
@@ -180,65 +180,84 @@ def make_primary_plot(production_df,
             )
         )
     elif chart_type == 'Scatter':
-        if margin_column == volume_column:
-            dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column]]\
-                 .median().sort_values(by=margin_column, ascending=False)).reset_index()
-        else:
-            dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column, volume_column]]\
-                 .median().sort_values(by=margin_column, ascending=False)).reset_index()
-        dff['median'] = dff.groupby(groupby_secondary)[margin_column].\
-                transform('median')
+        groupby = [groupby_primary, groupby_secondary]
+        groupby = [i for i in groupby if 'None' not in i]
+        if len(groupby) == 0:
+            dff = production_df.sort_values(by=margin_column, ascending=False)
+            dff = dff.reset_index(drop=True)
 
-        dff = dff.sort_values(['median', margin_column],
-            ascending=False).reset_index(drop=True)
-        dff = dff[dff.columns[:-1]]
-        if groupby_primary == 'Cost Center':
-            dff[groupby_primary] = '_' + dff[groupby_primary] + ' '
-
-        fig = go.Figure()
-        if margin_column == volume_column:
+            fig = go.Figure()
             for data in px.scatter(
                     dff,
-                    x=groupby_primary,
-                    y=margin_column,
-                    size=margin_column,
-                    color=groupby_secondary,
-                    hover_data=[groupby_primary],
-                    opacity=0.6).data:
-                fig.add_trace(
-                    data
-                ),
-        else:
-            for data in px.scatter(
-                    dff,
-                    x=groupby_primary,
+                    x=dff.index,
                     y=margin_column,
                     size=volume_column,
-                    color=groupby_secondary,
-                    hover_data=[groupby_primary],
+                    opacity=0.6).data:
+                fig.add_trace(
+                    data)
+        else:
+            if margin_column == volume_column:
+                dff = pd.DataFrame(production_df.groupby(groupby)[[margin_column]]\
+                     .median().sort_values(by=margin_column, ascending=False)).reset_index()
+            else:
+                dff = pd.DataFrame(production_df.groupby(groupby)[[margin_column, volume_column]]\
+                     .median().sort_values(by=margin_column, ascending=False)).reset_index()
+            dff['median'] = dff.groupby(groupby[-1])[margin_column].\
+                    transform('median')
+
+            dff = dff.sort_values(['median', margin_column],
+                ascending=False).reset_index(drop=True)
+            dff = dff[dff.columns[:-1]]
+            if groupby_primary == 'Cost Center':
+                dff[groupby_primary] = '_' + dff[groupby_primary]
+
+            fig = go.Figure()
+            for data in px.scatter(
+                    dff,
+                    x=groupby[0],
+                    y=margin_column,
+                    size=volume_column,
+                    color=groupby[-1],
+                    hover_data=[groupby[0]],
                     opacity=0.6).data:
                 fig.add_trace(
                     data
                 ),
     elif chart_type == 'Distribution':
-        dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column]]\
-                     .median().sort_values(by=margin_column, ascending=False)).reset_index()
-        dff['median'] = dff.groupby(groupby_primary)[margin_column].\
-                transform('median')
-
-        dff = dff.sort_values(['median', margin_column],
-            ascending=False).reset_index(drop=True)
-        dff = dff[dff.columns[:-1]]
-
+        groupby = [groupby_primary, groupby_secondary]
+        groupby = [i for i in groupby if 'None' not in i]
         fig = go.Figure()
-        for index in dff.index:
-            trace = production_df.loc[(production_df[groupby_primary] == dff[groupby_primary][index]) &
-                     (production_df[groupby_secondary] == dff[groupby_secondary][index])]
+        if len(groupby) != 0:
+            dff = pd.DataFrame(production_df.groupby(groupby)[[margin_column]]\
+                             .median().sort_values(by=margin_column, ascending=False)).reset_index()
+            dff['median'] = dff.groupby(groupby[0])[margin_column].\
+                    transform('median')
 
-            trace["Site"] = " "
+            dff = dff.sort_values(['median', margin_column],
+                ascending=False).reset_index(drop=True)
+            dff = dff[dff.columns[:-1]]
+            for index in dff.index:
+                if len(groupby) == 2:
+                    trace = production_df.loc[(production_df[groupby_primary] == dff[groupby_primary][index]) &
+                             (production_df[groupby_secondary] == dff[groupby_secondary][index])]
+                    name = 'N: {}, Avg: {:.0f}, {}, {}'.format(trace.shape[0], dff[margin_column][index],
+                        dff[groupby_primary][index], dff[groupby_secondary][index])
+                elif len(groupby) == 1:
+                    trace = production_df.loc[(production_df[groupby[0]] == dff[groupby[0]][index])]
+
+                    name = 'N: {}, Avg: {:.0f}, {}'.format(trace.shape[0], dff[margin_column][index],
+                        dff[groupby[0]][index])
+
+                trace["Site"] = " "
+                if trace.shape[0] > dist_cutoff:
+                    fig.add_trace(go.Violin(x=trace[margin_column],
+                                      y=trace["Site"],
+                                      name=name,
+                                    side='positive'))
+        else:
+            trace = production_df
+            name = 'N: {}, Avg: {:.0f}'.format(trace.shape[0], trace[margin_column].median())
             if trace.shape[0] > dist_cutoff:
-                name = 'N: {}, Avg: {:.0f}, {}, {}'.format(trace.shape[0], dff[margin_column][index],
-                    dff[groupby_primary][index], dff[groupby_secondary][index])
                 fig.add_trace(go.Violin(x=trace[margin_column],
                                   y=trace["Site"],
                                   name=name,
@@ -330,27 +349,39 @@ def make_secondary_plot(production_df,
                production_df[margin_column].quantile(quant[1])) &
               (production_df[margin_column] >
                production_df[margin_column].quantile(quant[0]))]
+    groupby = [groupby_primary, groupby_secondary]
+    groupby = [i for i in groupby if 'None' not in i]
+    if len(groupby) == 0:
+        groupby = ['Product']
     if chart_type == 'Distribution':
         colors = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F3',\
                   '#FF6692', '#B6E880', '#FF97FF', '#FECB52']
         colors_cycle = cycle(colors)
-        dff = pd.DataFrame(production_df.groupby([groupby_primary, groupby_secondary])[[margin_column]]\
-                 .median().sort_values(by=margin_column, ascending=False)).reset_index()
-        dff['median'] = dff.groupby(groupby_primary)[margin_column].\
+
+        dff = pd.DataFrame(production_df.groupby(groupby)[[margin_column]]\
+                             .median().sort_values(by=margin_column, ascending=False)).reset_index()
+        dff['median'] = dff.groupby(groupby[0])[margin_column].\
                 transform('median')
 
         dff = dff.sort_values(['median', margin_column],
             ascending=False).reset_index(drop=True)
         dff = dff[dff.columns[:-1]]
         fig = go.Figure()
-
         for index in dff.index:
-            trace = production_df.loc[(production_df[groupby_primary] == dff[groupby_primary][index]) &
-                     (production_df[groupby_secondary] == dff[groupby_secondary][index])]
+            if len(groupby) == 2:
+                trace = production_df.loc[(production_df[groupby_primary] == dff[groupby_primary][index]) &
+                         (production_df[groupby_secondary] == dff[groupby_secondary][index])]
+                name = 'N: {}, Avg: {:.0f}, {}, {}'.format(trace.shape[0], dff[margin_column][index],
+                    dff[groupby_primary][index], dff[groupby_secondary][index])
+            elif len(groupby) == 1:
+                trace = production_df.loc[(production_df[groupby[0]] == dff[groupby[0]][index])]
+
+                name = 'N: {}, Avg: {:.0f}, {}'.format(trace.shape[0], dff[margin_column][index],
+                    dff[groupby[0]][index])
+
+            trace["Site"] = " "
             if trace.shape[0] > dist_cutoff:
                 trace = trace.reset_index(drop=True)
-                name = 'N: {}, Avg: {:.0f}, {}, {}'.format(trace.shape[0], dff[margin_column][index],
-                            dff[groupby_primary][index], dff[groupby_secondary][index])
                 color = next(colors_cycle)
                 for sub_index in trace.index:
                     x1 = trace[start_date][sub_index]
@@ -372,8 +403,8 @@ def make_secondary_plot(production_df,
                                             mode='lines+markers'))
     else:
         production_df = production_df.sort_values(dates[-1]).reset_index()
-        fig = px.scatter(production_df.loc[production_df[groupby_primary].dropna().index],
-              x=dates[-1], y=volume_column, color=groupby_primary)
+        fig = px.scatter(production_df.loc[production_df[groupby[0]].dropna().index],
+              x=dates[-1], y=volume_column, color=groupby[0])
     fig.update_layout({
                 "plot_bgcolor": "#FFFFFF",
                 "paper_bgcolor": "#FFFFFF",
@@ -692,14 +723,14 @@ VISUALIZATION = html.Div([
     html.P('Groupby Primary'),
     dcc.Dropdown(id='primary_dropdown',
                  options=[{'label': i, 'value': i} for i in
-                           descriptors],
+                           descriptors + ['None']],
                  value='Technology',
                  multi=False,
                  className="dcc_control"),
     html.P('Groupby Secondary'),
     dcc.Dropdown(id='secondary_dropdown',
                  options=[{'label': i, 'value': i} for i in
-                           descriptors],
+                           descriptors + ['None']],
                  value='Tank Number',
                  multi=False,
                  className="dcc_control"),
@@ -948,7 +979,7 @@ app.config.suppress_callback_exceptions = True
 )
 def display_opportunity_results(button, production_df, one, two, three, time, tab):
     ctx = dash.callback_context
-    print(ctx.triggered[0]['prop_id'])
+
     if (ctx.triggered[0]['prop_id'] == 'opportunity-button.n_clicks') or\
        (ctx.triggered[0]['prop_id'] == 'tabs-control.value'):
         production_df = pd.read_json(production_df)
@@ -969,7 +1000,7 @@ def display_opportunity_results(button, production_df, one, two, three, time, ta
         columns=[{"name": i, "id": i} for i in results.columns]
         data = results.to_dict('rows')
         rows = [i for i in results.index if results['Time Opportunity, Hours'][i] > metric.quantile(0.99)]
-        print(rows)
+
         return data, columns, 'native', rows
 
 
@@ -1033,9 +1064,6 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
         return "{:.1f} M Gal / Hr".format(new_rate), \
         "+ {:.0f} Batches ({:.2f}%)".format(extra_batches, batch_increase), \
         "+ {:.2f} M Gal ({:.2f}%)".format(extra_volume, volume_increase)
-    print(rows)
-    print(' ')
-    print(pd.DataFrame(data).head())
     if type(filter_selected) == str:
         filter_selected = [filter_selected]
     production_df = pd.read_json(production_df, convert_dates=dates)
