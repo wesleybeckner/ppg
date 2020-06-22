@@ -47,37 +47,34 @@ server = app.server
 ##########
 
 ########## PPG2
-dates = ['Batch Completion Date',
- 'Move Order Created',
- 'First Inv Pick',
- 'Last Inv Pick',
- 'First Formulated Consumed Material',
- 'Last Formulated Consumed Material',
- 'First QC Consumed Material',
- 'Last QC Consumed Material',
- 'TO.80 Log Date',
- 'Preship And Fill Date',
- 'TO.80 Approval Date',
- 'Min SKU WIP Start Date',
- 'First WIP Completion Transaction',
- 'Last WIP Completion Transaction',
- 'TO.90 Log Date',
- 'TO.90 Approval Date',
- 'Min Date',
- 'Max Date']
+# dates = ['Batch Completion Date',
+#  'Move Order Created',
+#  'First Inv Pick',
+#  'Last Inv Pick',
+#  'First Formulated Consumed Material',
+#  'Last Formulated Consumed Material',
+#  'First QC Consumed Material',
+#  'Last QC Consumed Material',
+#  'TO.80 Log Date',
+#  'Preship And Fill Date',
+#  'TO.80 Approval Date',
+#  'Min SKU WIP Start Date',
+#  'First WIP Completion Transaction',
+#  'Last WIP Completion Transaction',
+#  'TO.90 Log Date',
+#  'TO.90 Approval Date',
+#  'Min Date',
+#  'Max Date']
 dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
-production_df = pd.read_csv('data/cleveland_filtered_with_null.csv', parse_dates=dates)
+production_df = pd.read_csv('data/Oak Creek.csv', parse_dates=dates)
 descriptors = ['Batch Completion Date', 'Batch Number', 'Tank Number',
        'Cost Center', 'Technology', 'Product', 'Inventory Category',
        'Equalization Lot Number', 'Parent Batch Planned Qty',
        'Parent Batch Actual Qty', 'Family']
 time_components = ['PA Time',
- # 'Formulated CM Time',
- # 'QC Adj CM Time',
  'Tot. CM Time',
  '80 appv.',
  'Filling Time',
- # '90 appv.',
  'Tot. Time']
 for col in time_components:
     production_df[col] = pd.to_timedelta(production_df[col])
@@ -578,7 +575,7 @@ UPLOAD = html.Div([
         html.Div([
         dcc.Dropdown(id='preset-files',
                      multi=False,
-                     options=[{'label': i, 'value': i} for i in ['polyamides', 'films']],
+                     options=[{'label': i, 'value': i} for i in ['Cleveland Filtered', 'Cleveland', 'Oak Creek']],
                      # placeholder="Select Cloud Dataset",
                      className='dcc_control',
                      style={
@@ -593,38 +590,40 @@ UPLOAD = html.Div([
                                                                }
                                                                ),
         ], className='row flex-display',
+        style={'max-height': '500px',
+                 'margin-top': '200px'}
         ),
-    html.P('Margin Column'),
-    dcc.Dropdown(id='upload-margin',
-                 multi=False,
-                 options=[],
-                 className="dcc_control",
-                 style={'textAlign': 'center',
-                        'margin-bottom': '10px'}),
-    html.P('Volume Column'),
-    dcc.Dropdown(id='upload-volume',
-                 multi=False,
-                 options=[],
-                 className="dcc_control",
-                 style={'textAlign': 'center',
-                        'margin-bottom': '10px'}),
-    html.P('Descriptor-Attribute Columns'),
-    dcc.Dropdown(id='upload-descriptors',
-                 multi=True,
-                 options=[],
-                 className="dcc_control",
-                 style={'textAlign': 'left',
-                        'margin-bottom': '10px'}),
-    html.P('p-Value Limit for Median Test', id='pvalue-number'),
-    dcc.Slider(id='p-value-slider',
-               min=0.01,
-               max=1,
-               step=0.01,
-               value=0.5),
-    html.Button('Process data file',
-                id='datafile-button',
-                style={'textAlign': 'center',
-                       'margin-bottom': '10px'}),
+    # html.P('Margin Column'),
+    # dcc.Dropdown(id='upload-margin',
+    #              multi=False,
+    #              options=[],
+    #              className="dcc_control",
+    #              style={'textAlign': 'center',
+    #                     'margin-bottom': '10px'}),
+    # html.P('Volume Column'),
+    # dcc.Dropdown(id='upload-volume',
+    #              multi=False,
+    #              options=[],
+    #              className="dcc_control",
+    #              style={'textAlign': 'center',
+    #                     'margin-bottom': '10px'}),
+    # html.P('Descriptor-Attribute Columns'),
+    # dcc.Dropdown(id='upload-descriptors',
+    #              multi=True,
+    #              options=[],
+    #              className="dcc_control",
+    #              style={'textAlign': 'left',
+    #                     'margin-bottom': '10px'}),
+    # html.P('p-Value Limit for Median Test', id='pvalue-number'),
+    # dcc.Slider(id='p-value-slider',
+    #            min=0.01,
+    #            max=1,
+    #            step=0.01,
+    #            value=0.5),
+    # html.Button('Process data file',
+    #             id='datafile-button',
+    #             style={'textAlign': 'center',
+    #                    'margin-bottom': '10px'}),
 ],)
 
 HIDDEN = html.Div([
@@ -873,8 +872,8 @@ html.Div(className='pretty_container', children=[KPIS,
         dcc.Tabs(id='tabs-control', value='tab-2', children=[
             dcc.Tab(label='About', value='tab-3',
                     children=[ABOUT]),
-            # dcc.Tab(label='Upload', value='tab-4',
-                    # children=[UPLOAD]),
+            dcc.Tab(label='Upload', value='tab-4',
+                    children=[UPLOAD]),
             dcc.Tab(label='Visualization', value='tab-1',
                     children=[VISUALIZATION]),
             dcc.Tab(label='Analytics', value='tab-2',
@@ -964,6 +963,80 @@ app.config.suppress_callback_exceptions = True
 #     return json.dumps(relayoutData, indent=2)
 
 #### Tab control stuff
+### UPLOAD TOOL ###
+@app.callback(
+    [Output('production-df-upload', 'children'),],
+  [Input('upload-data', 'contents'),
+   Input('preset-files', 'value')],
+  [State('upload-data', 'filename'),
+   State('upload-data', 'last_modified')])
+def update_production_df_and_table(list_of_contents, preset_file, list_of_names, list_of_dates):
+    if list_of_contents is not None:
+        df = [parse_contents(c, n, d) for c, n, d in
+            zip(list_of_contents, list_of_names, list_of_dates)]
+        df = df[0]
+        columns = [{'label': i, 'value': i} for i in df.columns]
+        columns_table = [{"name": i, "id": i} for i in df.columns]
+        return columns, columns, df.to_json(), columns
+    elif preset_file is not None:
+        print('working')
+        dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
+        production_df = pd.read_csv('data/{}.csv'.format(preset_file), parse_dates=dates)
+        descriptors = ['Batch Completion Date', 'Batch Number', 'Tank Number',
+               'Cost Center', 'Technology', 'Product', 'Inventory Category',
+               'Equalization Lot Number', 'Parent Batch Planned Qty',
+               'Parent Batch Actual Qty', 'Family']
+        time_components = ['PA Time',
+         'Tot. CM Time',
+         '80 appv.',
+         'Filling Time',
+         'Tot. Time']
+        for col in time_components:
+            production_df[col] = pd.to_timedelta(production_df[col])
+        time_column = time_components[-1]
+        volume_column = 'Parent Batch Actual Qty'
+        margin_column = "{} By {}".format(volume_column, time_column)
+        production_df[margin_column] = production_df[volume_column] /\
+            (production_df[time_components[-1]].dt.total_seconds()/60/60)
+        groupby_primary = 'Technology'
+        groupby_secondary = descriptors[2]
+        # df = pd.read_csv('data/{}.csv'.format(preset_file))
+        columns = [{'label': i, 'value': i} for i in production_df.columns]
+        columns_table = [{"name": i, "id": i} for i in production_df.columns]
+        print(production_df.head())
+        return [production_df.to_json()]
+
+# @app.callback(
+#     [Output('production-df-upload', 'children'),
+#     # Output('stat-df-upload', 'children'),
+#     # Output('descriptors-upload', 'children'),
+#     # Output('metric-upload', 'children'),
+#     # Output('volume-upload', 'children'),
+#     ],
+#    [Input('production-df-holding', 'children'),
+#     Input('upload-margin', 'value'),
+#     Input('upload-descriptors', 'value'),
+#     Input('datafile-button', 'n_clicks'),
+#     Input('upload-volume', 'value'),
+#     Input('p-value-slider', 'value')]
+# )
+# def update_main_dataframe(holding_df, margin, descriptors, button, volume, pvalue):
+#     ctx = dash.callback_context
+#     if ctx.triggered[0]['prop_id'] == 'datafile-button.n_clicks':
+#         production_df = pd.read_json(holding_df)
+#         for desc in descriptors: #9 is arbitrary should be a fraction of total datapoints or something
+#             if (len(production_df[desc].unique()) > 9) and (production_df[desc].dtype == float):
+#                 production_df[desc] = np.round(production_df[desc].astype(float),1)
+#         stat_df = my_median_test(production_df,
+#                    metric=margin,
+#                    descriptors=descriptors,
+#                    stat_cut_off=pvalue,
+#                    continuous=False)
+#         production_df[descriptors] = production_df[descriptors].astype(str)
+#         production_df = production_df.sort_values(['Product Family', margin],
+#                                                   ascending=False)
+#         return production_df.to_json()
+
 @app.callback(
     [Output('opportunity-table', 'data'),
     Output('opportunity-table', 'columns'),
