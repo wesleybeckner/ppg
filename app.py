@@ -60,22 +60,21 @@ server = app.server
 #  'TO.80 Approval Date',
 #  'Min SKU WIP Start Date',
 #  'First WIP Completion Transaction',
-#  'Last WIP Completion Transaction',
+#  'Last WIP Completion Transaction',f
 #  'TO.90 Log Date',
 #  'TO.90 Approval Date',
 #  'Min Date',
 #  'Max Date']
 dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
 production_df = pd.read_csv('data/Cleveland Filtered.csv', parse_dates=dates)
-descriptors = ['Batch Completion Date', 'Batch Number', 'Tank Number',
-       'Cost Center', 'Technology', 'Product', 'Inventory Category',
-       'Equalization Lot Number', 'Parent Batch Planned Qty',
-       'Parent Batch Actual Qty', 'Family']
+descriptors = ['Family', 'Tank Number',
+       'Cost Center', 'Technology', 'Product', 'Parent Batch Actual Qty']
 time_components = ['PA Time',
  'Tot. CM Time',
  '80 appv.',
  'Filling Time',
  'Tot. Time']
+time_components = production_df.columns[6:11]
 for col in time_components:
     production_df[col] = pd.to_timedelta(production_df[col])
 time_column = time_components[-1]
@@ -101,20 +100,21 @@ def find_opportunity(df,
                      volume_column='Parent Batch Actual Qty',
                      quant_target=0.75):
     groups=3
-    # if type(df.iloc[-1][time_column]) == pd._libs.tslibs.timedeltas.Timedelta:
-    # df[time_column] = df[time_column].dt.total_seconds()/60/60
+    if type(df.iloc[-1][time_column]) == pd._libs.tslibs.timedeltas.Timedelta:
+        df[time_column] = df[time_column].dt.total_seconds()/60/60
     margin_column = "{} By {}".format(volume_column, time_column)
     groupby = [groupby_primary, groupby_secondary, groupby_tertiary]
     df.loc[:, margin_column] = df[volume_column] / df[time_column]
     df = df.loc[df[[margin_column, volume_column, time_column]].notnull().all(axis=1)]
-    desc = df.groupby(groupby)[margin_column, volume_column, time_column].quantile([0.5,quant_target]).unstack(level=groups)
+    # desc = df.groupby(groupby)[margin_column].quantile([0.5,quant_target]).unstack(level=groups)
+    desc = df.groupby(groupby)[margin_column].describe()[['50%', '75%']]
     totals = df.groupby(groupby)[volume_column, time_column].agg(['sum', 'std', 'mean'])
     count = df.groupby(groupby)[volume_column].agg(['count'])
     count.columns = ['Count']
     desc = desc.join(totals).dropna()
     desc = desc.join(count)
-    desc['Volume Opportunity, Gal'] = (desc[volume_column, 'sum'] / desc[margin_column, 0.5] * desc[margin_column, quant_target]) - desc[volume_column, 'sum']
-    desc['Time Opportunity, Hours'] = desc[time_column, 'sum'] - (desc[time_column, 'sum'] / desc[margin_column, quant_target] * desc[margin_column, 0.5])
+    desc['Volume Opportunity, Gal'] = (desc[volume_column, 'sum'] / desc['50%'] * desc['75%']) - desc[volume_column, 'sum']
+    desc['Time Opportunity, Hours'] = desc[time_column, 'sum'] - (desc[time_column, 'sum'] / desc['75%'] * desc['50%'])
     desc = desc.sort_values(by=[('Time Opportunity, Hours')], ascending=False)
     return desc
 
@@ -852,7 +852,7 @@ html.P('Process Times'),
 dcc.Dropdown(id='time_dropdown_analytics',
              options=[{'label': i, 'value': i} for i in
                        time_components],
-             value="Tot. CM Time",
+             value=time_components[1],
              multi=False,
              className="dcc_control"),
 html.Button('Find opportunity',
@@ -870,14 +870,14 @@ html.Div(className='pretty_container', children=[KPIS,
     html.Div([
         html.Div([
         dcc.Tabs(id='tabs-control', value='tab-2', children=[
-            dcc.Tab(label='About', value='tab-3',
-                    children=[ABOUT]),
             dcc.Tab(label='Upload', value='tab-4',
                     children=[UPLOAD]),
-            dcc.Tab(label='Visualization', value='tab-1',
-                    children=[VISUALIZATION]),
             dcc.Tab(label='Analytics', value='tab-2',
                     children=[ANALYTICS]),
+            dcc.Tab(label='Visualization', value='tab-1',
+                    children=[VISUALIZATION]),
+            dcc.Tab(label='About', value='tab-3',
+                    children=[ABOUT]),
                     ]),
             ], className='mini_container',
                id='descriptorBlock',
@@ -991,6 +991,7 @@ def update_production_df_and_table(list_of_contents, preset_file, list_of_names,
          '80 appv.',
          'Filling Time',
          'Tot. Time']
+        time_components = production_df.columns[6:11]
         for col in time_components:
             production_df[col] = pd.to_timedelta(production_df[col])
         time_column = time_components[-1]
@@ -1062,7 +1063,7 @@ def display_opportunity_results(button, production_df, one, two, three, time, ta
         results = find_opportunity(production_df, one, two, three, time).reset_index()
         results.columns = [str(x).strip().replace('(', '').replace(')', '').replace("'", '') for x in results.columns]
         results = np.round(results)
-        results = results[[i for i in results.columns if ('0.75' not in i) and ('0.5' not in i)]]
+        results = results[[i for i in results.columns if ('75%' not in i) and ('50%' not in i)]]
         metric = results['Time Opportunity, Hours']
         results['Rating'] = results['Time Opportunity, Hours'].apply(lambda x:
             '⭐⭐⭐⭐' if x > metric.quantile(0.99) else (
@@ -1170,9 +1171,11 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
      Output('filter_dropdown_2', 'value'),
      Output('filter_dropdown_2', 'multi'),],
     [Input('filter_dropdown_1', 'value'),
-     Input('distribution', 'value')]
+     Input('distribution', 'value'),
+     Input('production-df-upload', 'children'),]
 )
-def update_filter(category, type):
+def update_filter(category, type, production_df):
+    production_df = pd.read_json(production_df)
     if type == 'Distribution':
         return [{'label': i, 'value': i} for i in production_df[category].unique()],\
         production_df[category].unique()[-2], False
