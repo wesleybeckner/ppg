@@ -66,7 +66,7 @@ server = app.server
 #  'Min Date',
 #  'Max Date']
 dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
-production_df = pd.read_csv('data/Oak Creek.csv', parse_dates=dates)
+production_df = pd.read_csv('data/Cleveland Filtered.csv', parse_dates=dates)
 descriptors = ['Batch Completion Date', 'Batch Number', 'Tank Number',
        'Cost Center', 'Technology', 'Product', 'Inventory Category',
        'Equalization Lot Number', 'Parent Batch Planned Qty',
