@@ -68,7 +68,7 @@ server = app.server
 dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
 production_df = pd.read_csv('data/Cleveland Filtered.csv', parse_dates=dates)
 descriptors = ['Family', 'Tank Number',
-       'Cost Center', 'Technology', 'Product', 'Parent Batch Actual Qty']
+       'Cost Center', 'Technology', 'Product', 'Parent Batch Actual Qty', 'Site']
 time_components = ['PA Time',
  'Tot. CM Time',
  '80 appv.',
@@ -320,6 +320,7 @@ def make_primary_plot(production_df,
 
 def make_secondary_plot(production_df,
                    margin_column,
+                   time_column,
                    groupby_primary,
                    groupby_secondary,
                    filter_selected=None,
@@ -901,6 +902,7 @@ html.Div(className='pretty_container', children=[KPIS,
                         style={'display': 'none'},
                         figure=make_secondary_plot(production_df,
                                            margin_column,
+                                           time_column,
                                            groupby_primary,
                                            groupby_secondary,
                                            chart_type='Parallel Coordinates (Time)')
@@ -1123,16 +1125,23 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
                         groupby_secondary, clickData, selectedData,
                         relayoutData, time_column, time):
     if (tab == 'tab-2') and (data is not None) and (len(rows) > 0):
-        total_volume = pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum()/1e6
+        production_df = pd.read_json(production_df, convert_dates=dates)
+#         total_volume = pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum()/1e6
+        total_volume = production_df['Parent Batch Actual Qty'].sum()/1e6
         extra_volume = pd.DataFrame(data).iloc[rows]['Volume Opportunity, Gal'].sum()/1e6
         volume_increase = (total_volume + extra_volume) / total_volume * 100
 
-        total_batches = pd.DataFrame(data)['Count'].sum()
+#         total_batches = pd.DataFrame(data)['Count'].sum()
+        total_batches = production_df.shape[0]
         mean_batch_size = pd.DataFrame(data).iloc[rows]['Parent Batch Actual Qty, mean'].mean()/1e6
         extra_batches = extra_volume / mean_batch_size
         batch_increase = (total_batches + extra_batches) / total_batches * 100
 
-        rate = pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum() / pd.DataFrame(data)['{}, sum'.format(time)].sum()
+        rate = pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum() /\
+            pd.DataFrame(data)['{}, sum'.format(time)].sum()
+#         production_df[time] = pd.to_timedelta(production_df[time], unit='ms')
+#         rate = production_df['Parent Batch Actual Qty'].sum() /\
+#             (production_df[time].dt.total_seconds()/60/60)
         new_rate = (pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum() + (extra_volume*1e6) )/ pd.DataFrame(data)['{}, sum'.format(time)].sum()
         rate_increase = new_rate / rate * 100
         return "{:.1f} M Gal / Hr".format(new_rate), \
@@ -1147,7 +1156,7 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
         production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
     production_df[margin_column] = production_df[volume_column] /\
         (production_df[time_column].dt.total_seconds()/60/60)
-    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    # production_df = production_df.loc[production_df[margin_column] < np.inf]
     production_df = production_df.loc[(production_df[margin_column] <
         production_df[margin_column].quantile(0.995))]
     if relayoutData is not None:
@@ -1177,8 +1186,12 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
 def update_filter(category, type, production_df):
     production_df = pd.read_json(production_df)
     if type == 'Distribution':
-        return [{'label': i, 'value': i} for i in production_df[category].unique()],\
-        production_df[category].unique()[-2], False
+        if len(production_df[category].unique()) > 1:
+            return [{'label': i, 'value': i} for i in production_df[category].unique()],\
+            production_df[category].unique()[-2], False
+        else:
+            return [{'label': i, 'value': i} for i in production_df[category].unique()],\
+            production_df[category].unique()[0], False
     else:
         return [{'label': i, 'value': i} for i in production_df[category].unique()],\
         list(production_df[category].unique()), True
@@ -1244,13 +1257,12 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                         groupby_secondary, relayoutData, time_column,
                         chart_type, data_type, one, two, three, time):
     production_df = pd.read_json(production_df, convert_dates=dates)
+    margin_column = "{} By {}".format(volume_column, time_column)
     for col in time_components:
         production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
     production_df[margin_column] = production_df[volume_column] /\
         (production_df[time_column].dt.total_seconds()/60/60)
-    production_df = production_df.loc[production_df[margin_column] < np.inf]
-    # production_df = production_df.loc[(production_df[margin_column] <
-    #     production_df[margin_column].quantile(0.995))]
+
     if (tab == 'tab-2') and (data is not None) and (len(rows) > 0):
         # for col in time_components:
         #     production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
@@ -1277,6 +1289,10 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
 
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
+    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+        production_df[margin_column].quantile(0.997))]
+    print('prim filt ', production_df.shape)
 
     if relayoutData is not None:
         if 'xaxis.range[0]' in relayoutData.keys():
@@ -1313,9 +1329,11 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
 def display_secondary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
                         groupby_secondary, time_column, chart_type, data_type):
+    production_df = pd.read_json(production_df, convert_dates=dates)
+    margin_column = "{} By {}".format(volume_column, time_column)
     if type(filter_selected) == str:
         filter_selected = [filter_selected]
-    production_df = pd.read_json(production_df, convert_dates=dates)
+
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
     for col in time_components:
@@ -1324,9 +1342,10 @@ def display_secondary_plot(filter_category, filter_selected, rows, data, tab,
         (production_df[time_column].dt.total_seconds()/60/60)
     production_df = production_df.loc[production_df[margin_column] < np.inf]
     production_df = production_df.loc[(production_df[margin_column] <
-        production_df[margin_column].quantile(0.995))]
+        production_df[margin_column].quantile(0.997))]
+    print('secon filt ', production_df.shape)
     return make_secondary_plot(production_df,
-        margin_column, groupby_primary,
+        margin_column, time_column, groupby_primary,
         groupby_secondary, chart_type=chart_type, data_type=data_type)
 
 # @app.callback(
