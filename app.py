@@ -131,7 +131,7 @@ def make_primary_plot(production_df,
                    all_lines=True,
                    sort_by='mean',
                    data_type='Rate (Gal/Hr)',
-                   quant=[0.02, 0.98],
+                   quant=[0.02, 0.997],
                    dist_cutoff=2):
     ### Preprocessing
     if (data_type == 'Rate (Gal/Hr)') and (chart_type != 'Parallel Coordinates (Time)'):
@@ -481,13 +481,24 @@ def make_results_distribution(df,
                  groupby_secondary = "Technology",
                  groupby_tertiary = "Tank Number",
                  time_column=time_components[3],
+                 data_type='Rate (Gal/Hr)',
                  volume_column='Parent Batch Actual Qty',
                  quant_target=0.75,
                  dist_cutoff = 1):
     groups = 3
-    margin_column = "{} By {} (Gal/Hr)".format(volume_column, time_column)
+    ### Preprocessing
+    if (data_type == 'Rate (Gal/Hr)'):
+        margin_column = "{} By {} (Gal/Hr)".format(volume_column, time_column)
+        df[margin_column] = df[volume_column] / (df[time_column].dt.total_seconds()/60/60)
+    elif data_type == 'Volume (Gal)':
+        margin_column = "{} (Gal)".format(volume_column)
+        df[margin_column] = df[volume_column]
+    else:
+        margin_column = "{} (Hr)".format(time_column)
+        df[margin_column] = df[time_column].dt.total_seconds()/60/60
+    # margin_column = "{} By {} (Gal/Hr)".format(volume_column, time_column)
     groupby = [groupby_primary, groupby_secondary, groupby_tertiary]
-    df.loc[:, margin_column] = df[volume_column] / (df[time_column].dt.total_seconds()/60/60)
+    # df.loc[:, margin_column] = df[volume_column] / (df[time_column].dt.total_seconds()/60/60)
     # df = df.loc[df[[margin_column, volume_column, time_column]].notnull().all(axis=1)]
 #     desc = df.groupby(groupby)[margin_column, volume_column, time_column].quantile([0.5,quant_target]).unstack(level=groups)
 #     return desc
@@ -520,8 +531,8 @@ def make_results_distribution(df,
     fig.update_xaxes(rangemode="nonnegative")
     fig.update_layout({
                 "title": '{}'.format(margin_column),
-                "yaxis.title": "{}".format(margin_column),
-                "xaxis.title": "{}, {}, {}".format(groupby[0], groupby[1], groupby[2]),
+                "xaxis.title": "{}".format(margin_column),
+                "yaxis.title": "{}, {}, {}".format(groupby[0], groupby[1], groupby[2]),
                 "height": 600})
     fig.update_layout({
                 "plot_bgcolor": "#FFFFFF",
@@ -755,7 +766,7 @@ VISUALIZATION = html.Div([
                            ['Scatter', 'Distribution', 'Parallel Coordinates (Time)']],
                  value='Distribution',
                  className="dcc_control"),
-    html.P('Data Type'),
+    html.P('Plot Metric'),
     dcc.Dropdown(id='data-type',
                  options=[{'label': i, 'value': i} for i in
                            ['Rate (Gal/Hr)', 'Volume (Gal)', 'Time (Hr)']],
@@ -860,6 +871,12 @@ html.Button('Find opportunity',
             id='opportunity-button',
             style={'textAlign': 'center',
                    'margin-bottom': '10px'}),
+html.P('Plot Metric'),
+dcc.Dropdown(id='data-type-analytics',
+             options=[{'label': i, 'value': i} for i in
+                       ['Rate (Gal/Hr)', 'Volume (Gal)', 'Time (Hr)']],
+             value='Rate (Gal/Hr)',
+             className="dcc_control"),
 
     ], style={'max-height': '500px',
              'margin-top': '20px'}
@@ -1250,12 +1267,14 @@ def margin_column(time_column, time, tab):
     Input('secondary_dropdown_analytics', 'value'),
     Input('tertiary_dropdown_analytics', 'value'),
     Input('time_dropdown_analytics', 'value'),
+    Input('data-type-analytics', 'value'),
     ]
 )
 def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
                         groupby_secondary, relayoutData, time_column,
-                        chart_type, data_type, one, two, three, time):
+                        chart_type, data_type, one, two, three, time,
+                        data_type_analytics):
     production_df = pd.read_json(production_df, convert_dates=dates)
     margin_column = "{} By {}".format(volume_column, time_column)
     for col in time_components:
@@ -1281,7 +1300,8 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                               (production_df[groupby_secondary] == group_two) &
                               (production_df[groupby_tertiary] == group_three)]])
 
-        return make_results_distribution(sub_df, one, two, three, time)
+        return make_results_distribution(sub_df, one, two, three, time,
+            data_type_analytics)
     # elif (tab == 'tab-2'):
     #     return None
     if type(filter_selected) == str:
