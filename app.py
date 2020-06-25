@@ -67,6 +67,7 @@ server = app.server
 #  'Max Date']
 dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
 production_df = pd.read_csv('data/Cleveland Filtered.csv', parse_dates=dates)
+whole_df = pd.read_csv('data/Cleveland.csv', parse_dates=dates)
 descriptors = ['Family', 'Tank Number',
        'Cost Center', 'Technology', 'Product', 'Parent Batch Actual Qty', 'Site']
 time_components = ['PA Time',
@@ -998,9 +999,12 @@ def update_production_df_and_table(list_of_contents, preset_file, list_of_names,
         columns_table = [{"name": i, "id": i} for i in df.columns]
         return columns, columns, df.to_json(), columns
     elif preset_file is not None:
-        print('working')
+
         dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
-        production_df = pd.read_csv('data/{}.csv'.format(preset_file), parse_dates=dates)
+        if preset_file == 'Cleveland':
+            production_df = whole_df
+        else:
+            production_df = pd.read_csv('data/{}.csv'.format(preset_file), parse_dates=dates)
         descriptors = ['Batch Completion Date', 'Batch Number', 'Tank Number',
                'Cost Center', 'Technology', 'Product', 'Inventory Category',
                'Equalization Lot Number', 'Parent Batch Planned Qty',
