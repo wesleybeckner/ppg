@@ -39,67 +39,232 @@ auth = dash_auth.BasicAuth(
 server = app.server
 
 ########## PPG
-production_df = pd.read_csv('data/work_cell_data.csv')
-margin_column = 'Actual vs Planned'
-groupby_primary = 'Batch Close Month'
-groupby_secondary = 'Inventory Org Name'
-descriptors = list(production_df.select_dtypes(exclude=np.number).columns)
+# production_df = pd.read_csv('data/work_cell_data.csv')
+# margin_column = 'Actual vs Planned'
+# groupby_primary = 'Batch Close Month'
+# groupby_secondary = 'Inventory Org Name'
+# descriptors = list(production_df.select_dtypes(exclude=np.number).columns)
 ##########
 
-production_df[descriptors] = production_df[descriptors].astype(str)
+########## PPG2
+# dates = ['Batch Completion Date',
+#  'Move Order Created',
+#  'First Inv Pick',
+#  'Last Inv Pick',
+#  'First Formulated Consumed Material',
+#  'Last Formulated Consumed Material',
+#  'First QC Consumed Material',
+#  'Last QC Consumed Material',
+#  'TO.80 Log Date',
+#  'Preship And Fill Date',
+#  'TO.80 Approval Date',
+#  'Min SKU WIP Start Date',
+#  'First WIP Completion Transaction',
+#  'Last WIP Completion Transaction',f
+#  'TO.90 Log Date',
+#  'TO.90 Approval Date',
+#  'Min Date',
+#  'Max Date']
+dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
+production_df = pd.read_csv('data/Cleveland Filtered.csv', parse_dates=dates)
+# whole_df = pd.read_csv('data/Cleveland.csv', parse_dates=dates)
+descriptors = ['Family', 'Tank Number',
+       'Cost Center', 'Technology', 'Product', 'Parent Batch Actual Qty', 'Site']
+time_components = ['PA Time',
+ 'Tot. CM Time',
+ '80 appv.',
+ 'Filling Time',
+ 'Tot. Time']
+time_components = production_df.columns[6:11]
+for col in time_components:
+    production_df[col] = pd.to_timedelta(production_df[col])
+time_column = time_components[-1]
+volume_column = 'Parent Batch Actual Qty'
+margin_column = "{} By {}".format(volume_column, time_column)
+production_df[margin_column] = production_df[volume_column] /\
+    (production_df[time_components[-1]].dt.total_seconds()/60/60)
+groupby_primary = 'Technology'
+groupby_secondary = descriptors[2]
+production_df = production_df.loc[production_df[margin_column] < 1e2]
+
+##########
+
+
+# production_df[descriptors] = production_df[descriptors].astype(str)
 production_json = production_df.to_json()
 
-def calculate_margin_opportunity(production_df,
-                                 groupby_primary,
-                                 margin_column,
-                                 category_filter,
-                                 descriptors=None,
-                                 families=None,
-                                 results_df=None,
-                                 selecteddata=None):
-    old_products = production_df['Product'].unique().shape[0]
-    if selecteddata is not None:
-        if families != None:
-            production_df = production_df.loc[production_df[category_filter]\
-                .isin(families)]
-        dff = pd.DataFrame(selecteddata['points'])
-        subdf = production_df.loc[(production_df[margin_column].isin(dff['y'])) &
-                          (production_df[groupby_primary].isin(dff['marker.size']))]
-    elif results_df is not None:
-        new_df = production_df
-        for index in results_df.index:
-            new_df = new_df.loc[~((new_df[category_filter] == \
-                results_df.iloc[index]['Family']) &
-                        (new_df[results_df.iloc[index]['Descriptor']] \
-                            == results_df.iloc[index]['Group']))]
-
-    new_EBITDA = new_df[margin_column].sum()
-    EBITDA_percent = new_EBITDA / production_df[margin_column].sum() * 100
-
-    new_products = new_df['Product'].unique().shape[0]
-
-    product_percent_reduction = (new_products) / \
-        old_products * 100
-
-    new_kg = new_df[groupby_primary].sum()
-    old_kg = production_df[groupby_primary].sum()
-    kg_percent = new_kg / old_kg * 100
-
-    return "€{:.2f} M of €{:.2f} M ({:.1f}%)".format(new_EBITDA/1e6,
-                production_df[margin_column].sum()/1e6, EBITDA_percent), \
-            "{} of {} Products ({:.1f}%)".format(new_products,old_products,
-                product_percent_reduction),\
-            "{:.2f} M of {:.2f} M kg ({:.1f}%)".format(new_kg/1e6, old_kg/1e6,
-                kg_percent)
+def find_opportunity(df,
+                     groupby_primary = "Cost Center",
+                     groupby_secondary = "Technology",
+                     groupby_tertiary = "Tank Number",
+                     time_column=time_components[3],
+                     volume_column='Parent Batch Actual Qty',
+                     quant_target=0.75):
+    groups=3
+    if type(df.iloc[-1][time_column]) == pd._libs.tslibs.timedeltas.Timedelta:
+        df[time_column] = df[time_column].dt.total_seconds()/60/60
+    margin_column = "{} By {}".format(volume_column, time_column)
+    groupby = [groupby_primary, groupby_secondary, groupby_tertiary]
+    df.loc[:, margin_column] = df[volume_column] / df[time_column]
+    df = df.loc[df[[margin_column, volume_column, time_column]].notnull().all(axis=1)]
+    # desc = df.groupby(groupby)[margin_column].quantile([0.5,quant_target]).unstack(level=groups)
+    desc = df.groupby(groupby)[margin_column].describe()[['50%', '75%']]
+    totals = df.groupby(groupby)[volume_column, time_column].agg(['sum', 'std', 'mean'])
+    count = df.groupby(groupby)[volume_column].agg(['count'])
+    count.columns = ['Count']
+    desc = desc.join(totals).dropna()
+    desc = desc.join(count)
+    desc['Volume Opportunity, Gal'] = (desc[volume_column, 'sum'] / desc['50%'] * desc['75%']) - desc[volume_column, 'sum']
+    desc['Time Opportunity, Hours'] = desc[time_column, 'sum'] - (desc[time_column, 'sum'] / desc['75%'] * desc['50%'])
+    desc = desc.sort_values(by=[('Time Opportunity, Hours')], ascending=False)
+    return desc
 
 def make_primary_plot(production_df,
                    margin_column,
+                   volume_column,
                    groupby_primary,
                    groupby_secondary,
+                   time_column,
                    filter_selected=None,
                    filter_category=None,
-                   results_df=None):
-    if "vs" in margin_column:
+                   results_df=None,
+                   chart_type='Distribution',
+                   all_lines=True,
+                   sort_by='mean',
+                   data_type='Rate (Gal/Hr)',
+                   quant=[0.02, 0.997],
+                   dist_cutoff=2):
+    ### Preprocessing
+    if (data_type == 'Rate (Gal/Hr)') and (chart_type != 'Parallel Coordinates (Time)'):
+        margin_column = "{} By {} (Gal/Hr)".format(volume_column, time_column)
+        production_df[margin_column] = production_df[volume_column] / (production_df[time_column].dt.total_seconds()/60/60)
+    elif data_type == 'Volume (Gal)':
+        margin_column = "{} (Gal)".format(volume_column)
+        production_df[margin_column] = production_df[volume_column]
+    elif chart_type != 'Parallel Coordinates (Time)':
+        margin_column = "{} (Hr)".format(time_column)
+        production_df[margin_column] = production_df[time_column].dt.total_seconds()/60/60
+    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+               production_df[margin_column].quantile(quant[1])) &
+              (production_df[margin_column] >
+               production_df[margin_column].quantile(quant[0]))]
+
+    ### Charts
+    if chart_type == 'Parallel Coordinates (Time)':
+        df = production_df.groupby(groupby_primary)[time_components].agg(lambda x: x.median())
+        df = df.reset_index()
+        for col in time_components:
+            df[col] = df[col].dt.total_seconds()/60/60
+        df[time_components] = np.round(df[time_components]) #px does not round automatically
+        df = df.sort_values(by='Tot. Time').reset_index(drop=True)
+        dimensions = list([
+                    dict(tickvals = list(df['Tot. Time']),
+                         ticktext = list(df[groupby_primary]),
+                         label = groupby_primary, values = df['Tot. Time']),
+                ])
+        for col in time_components:
+            dimensions.append(dict(label = col, values = df[col]))
+
+        fig = go.Figure(data=
+            go.Parcoords(
+                line = dict(color = df['Tot. Time'],
+                           colorscale = 'Electric',
+                           showscale = True,
+                           cmin = min(df['Tot. Time']),
+                           cmax = max(df['Tot. Time'])),
+                dimensions = dimensions,
+
+            )
+        )
+    elif chart_type == 'Scatter':
+        groupby = [groupby_primary, groupby_secondary]
+        groupby = [i for i in groupby if 'None' not in i]
+        if len(groupby) == 0:
+            dff = production_df.sort_values(by=margin_column, ascending=False)
+            dff = dff.reset_index(drop=True)
+
+            fig = go.Figure()
+            for data in px.scatter(
+                    dff,
+                    x=dff.index,
+                    y=margin_column,
+                    size=volume_column,
+                    opacity=0.6).data:
+                fig.add_trace(
+                    data)
+        else:
+            if margin_column == volume_column:
+                dff = pd.DataFrame(production_df.groupby(groupby)[[margin_column]]\
+                     .median().sort_values(by=margin_column, ascending=False)).reset_index()
+            else:
+                dff = pd.DataFrame(production_df.groupby(groupby)[[margin_column, volume_column]]\
+                     .median().sort_values(by=margin_column, ascending=False)).reset_index()
+            dff['median'] = dff.groupby(groupby[-1])[margin_column].\
+                    transform('median')
+
+            dff = dff.sort_values(['median', margin_column],
+                ascending=False).reset_index(drop=True)
+            dff = dff[dff.columns[:-1]]
+            if groupby_primary == 'Cost Center':
+                dff[groupby_primary] = '_' + dff[groupby_primary]
+
+            fig = go.Figure()
+            for data in px.scatter(
+                    dff,
+                    x=groupby[0],
+                    y=margin_column,
+                    size=volume_column,
+                    color=groupby[-1],
+                    hover_data=[groupby[0]],
+                    opacity=0.6).data:
+                fig.add_trace(
+                    data
+                ),
+    elif chart_type == 'Distribution':
+        groupby = [groupby_primary, groupby_secondary]
+        groupby = [i for i in groupby if 'None' not in i]
+        fig = go.Figure()
+        if len(groupby) != 0:
+            dff = pd.DataFrame(production_df.groupby(groupby)[[margin_column]]\
+                             .median().sort_values(by=margin_column, ascending=False)).reset_index()
+            dff['median'] = dff.groupby(groupby[0])[margin_column].\
+                    transform('median')
+
+            dff = dff.sort_values(['median', margin_column],
+                ascending=False).reset_index(drop=True)
+            dff = dff[dff.columns[:-1]]
+            for index in dff.index:
+                if len(groupby) == 2:
+                    trace = production_df.loc[(production_df[groupby_primary] == dff[groupby_primary][index]) &
+                             (production_df[groupby_secondary] == dff[groupby_secondary][index])]
+                    name = 'N: {}, Avg: {:.0f}, {}, {}'.format(trace.shape[0], dff[margin_column][index],
+                        dff[groupby_primary][index], dff[groupby_secondary][index])
+                elif len(groupby) == 1:
+                    trace = production_df.loc[(production_df[groupby[0]] == dff[groupby[0]][index])]
+
+                    name = 'N: {}, Avg: {:.0f}, {}'.format(trace.shape[0], dff[margin_column][index],
+                        dff[groupby[0]][index])
+
+                trace["Site"] = " "
+                if trace.shape[0] > dist_cutoff:
+                    fig.add_trace(go.Violin(x=trace[margin_column],
+                                      y=trace["Site"],
+                                      name=name,
+                                    side='positive'))
+        else:
+            trace = production_df
+            name = 'N: {}, Avg: {:.0f}'.format(trace.shape[0], trace[margin_column].median())
+            if trace.shape[0] > dist_cutoff:
+                fig.add_trace(go.Violin(x=trace[margin_column],
+                                  y=trace["Site"],
+                                  name=name,
+                                side='positive'))
+        fig.update_traces(meanline_visible=True, orientation='h')
+        fig.update_xaxes(rangemode="nonnegative")
+
+
+    elif "vs" in margin_column:
         margin_column = '{} (% by {}, {})'\
                        .format(margin_column, groupby_primary, groupby_secondary)
         dff = pd.DataFrame(((production_df.groupby([groupby_primary, groupby_secondary])\
@@ -109,84 +274,155 @@ def make_primary_plot(production_df,
                          production_df.groupby([groupby_primary, groupby_secondary])\
                             ['Planned Qty In (KLG)'].sum()) * 100).reset_index()
         dff.columns = [groupby_primary, groupby_secondary, margin_column]
-    elif "KLG" in margin_column:
-        dff = pd.DataFrame(production_df.groupby([groupby_primary,
-                                       groupby_secondary])\
-                           [margin_column].sum()).reset_index()
-    else:
-        dff = pd.DataFrame(production_df.groupby([groupby_primary,
-                                       groupby_secondary])\
-                           [margin_column].mean()).reset_index()
-    fig = px.bar(dff, dff[groupby_primary],
+        fig = px.bar(dff, dff[groupby_primary],
                  margin_column,
                  color=groupby_secondary,
                  barmode='group')
 
-    if results_df is not None:
-        new_df = pd.DataFrame()
-        for index in results_df.index:
-            x = production_df.loc[(production_df[category_filter] == results_df.iloc[index]['Family']) &
-                        (production_df[results_df.iloc[index]['Descriptor']] == results_df.iloc[index]['Group'])]
-            x['color'] = next(colors_cycle) # for line shapes
-            new_df = pd.concat([new_df, x])
-            new_df = new_df.reset_index(drop=True)
-        shapes=[]
-        for index, i in enumerate(new_df['Product']):
-            shapes.append({'type': 'line',
-                           'xref': 'x',
-                           'yref': 'y',
-                           'x0': i,
-                           'y0': new_df[margin_column][index],
-                           'x1': i,
-                           'y1': max(production_df[margin_column]),
-                           'line':dict(
-                               dash="dot",
-                               color=new_df['color'][index],)})
-        fig.update_layout(shapes=shapes)
     fig.layout.clickmode = 'event+select'
     fig.update_layout({
+            "height": 600,
             "plot_bgcolor": "#FFFFFF",
             "paper_bgcolor": "#FFFFFF",
-            # "title": '{} by {}'.format(margin_column, color),
-            # "yaxis.title": "{}".format(margin_column),
-            "height": 600,
-            "margin": dict(
-                   l=0,
-                   r=0,
-                   b=0,
-                   t=30,
-                   pad=4
-),
-            "xaxis.tickfont.size": 8,
-            })
+    }
+    )
+    if chart_type != 'Parallel Coordinates (Time)':
+        if chart_type != 'Distribution':
+            fig.update_layout({
+                "title": '{}'.format(margin_column),
+                "yaxis.title": "{}".format(margin_column),
+                "xaxis.title": "{}".format(groupby_primary),
+                "margin": dict(
+                       l=0,
+                       r=0,
+                       b=0,
+                       t=30,
+                       pad=4
+    ),
+                "xaxis.tickfont.size": 8,
+                })
+        else:
+            fig.update_layout({
+                    "title": '{}'.format(margin_column),
+                    "xaxis.title": "{}".format(margin_column),
+                    "yaxis.title": "{} + {}".format(groupby_primary,
+                        groupby_secondary),
+                    "margin": dict(
+                           l=0,
+                           r=0,
+                           b=0,
+                           t=30,
+                           pad=4
+        ),
+                    "xaxis.tickfont.size": 8,
+                    })
     return fig
+
 
 def make_secondary_plot(production_df,
                    margin_column,
+                   time_column,
                    groupby_primary,
                    groupby_secondary,
                    filter_selected=None,
                    filter_category=None,
-                   results_df=None):
+                   results_df=None,
+                   chart_type='Parallel Coordinates (Time)',
+                   data_type='Rate (Gal/Hr)',
+                   quant=[0.02, 0.98],
+                   dist_cutoff=2,
+                   start_date='First Formulated Consumed Material',
+                   end_date='TO.80 Log Date'):
+    ### Preprocessing
+    if (data_type == 'Rate (Gal/Hr)') and (chart_type != 'Parallel Coordinates (Time)'):
+        margin_column = "{} By {} (Gal/Hr)".format(volume_column, time_column)
+        production_df[margin_column] = production_df[volume_column] / (production_df[time_column].dt.total_seconds()/60/60)
+    elif data_type == 'Volume (Gal)':
+        margin_column = "{} (Gal)".format(volume_column)
+        production_df[margin_column] = production_df[volume_column]
+    elif chart_type != 'Parallel Coordinates (Time)':
+        margin_column = "{} (Hr)".format(time_column)
+        production_df[margin_column] = production_df[time_column].dt.total_seconds()/60/60
+    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+               production_df[margin_column].quantile(quant[1])) &
+              (production_df[margin_column] >
+               production_df[margin_column].quantile(quant[0]))]
+    groupby = [groupby_primary, groupby_secondary]
+    groupby = [i for i in groupby if 'None' not in i]
+    if len(groupby) == 0:
+        groupby = ['Product']
+    if chart_type == 'Distribution':
+        colors = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F3',\
+                  '#FF6692', '#B6E880', '#FF97FF', '#FECB52']
+        colors_cycle = cycle(colors)
 
-    fig = px.violin(production_df,
-                    y=margin_column,
-                    x=groupby_primary,
-                    color=groupby_secondary)#, violinmode='overlay')
+        dff = pd.DataFrame(production_df.groupby(groupby)[[margin_column]]\
+                             .median().sort_values(by=margin_column, ascending=False)).reset_index()
+        dff['median'] = dff.groupby(groupby[0])[margin_column].\
+                transform('median')
+
+        dff = dff.sort_values(['median', margin_column],
+            ascending=False).reset_index(drop=True)
+        dff = dff[dff.columns[:-1]]
+        fig = go.Figure()
+        for index in dff.index:
+            if len(groupby) == 2:
+                trace = production_df.loc[(production_df[groupby_primary] == dff[groupby_primary][index]) &
+                         (production_df[groupby_secondary] == dff[groupby_secondary][index])]
+                name = 'N: {}, Avg: {:.0f}, {}, {}'.format(trace.shape[0], dff[margin_column][index],
+                    dff[groupby_primary][index], dff[groupby_secondary][index])
+            elif len(groupby) == 1:
+                trace = production_df.loc[(production_df[groupby[0]] == dff[groupby[0]][index])]
+
+                name = 'N: {}, Avg: {:.0f}, {}'.format(trace.shape[0], dff[margin_column][index],
+                    dff[groupby[0]][index])
+
+            trace["Site"] = " "
+            if trace.shape[0] > dist_cutoff:
+                trace = trace.reset_index(drop=True)
+                color = next(colors_cycle)
+                for sub_index in trace.index:
+                    x1 = trace[start_date][sub_index]
+                    x2 = trace[end_date][sub_index]
+                    y1 = trace[margin_column][sub_index]
+                    y2 = trace[margin_column][sub_index]
+                    if sub_index == 0:
+                        legend = True
+                    else:
+                        legend = False
+                    fig.add_trace(go.Scatter(x=[x1, x2],
+                                          y=[y1, y2],
+                                          name=name,
+                                             showlegend=legend,
+                                             legendgroup=name,
+                                            marker=dict(size=8, color=[color, color]),
+                                             line=dict(color=color),
+
+                                            mode='lines+markers'))
+    else:
+        production_df = production_df.sort_values(dates[-1]).reset_index()
+        fig = px.scatter(production_df.loc[production_df[groupby[0]].dropna().index],
+              x=dates[-1], y=volume_column, color=groupby[0])
     fig.update_layout({
                 "plot_bgcolor": "#FFFFFF",
                 "paper_bgcolor": "#FFFFFF",
-                "title": '{} by {}, {}'.format( margin_column,
-                 groupby_primary,
-                 groupby_secondary),
+                # "title": '{} by {}'.format(volume_column,
+                #  dates[-1]),
                 "yaxis.title": "{}".format(margin_column),
-                # "height": 400,
+                "height": 400,
+                "legend_title_text": " ",
                 "margin": dict(
                        l=0,
                        r=0,
                        b=0,
                        t=30,
                        pad=4),
+                "xaxis":{'rangeselector': {'buttons': list([{'count': 1, 'label': '1M', 'step': 'month', 'stepmode': 'backward'},
+                                                          {'count': 3, 'label': '3M', 'step': 'month', 'stepmode': 'backward'},
+                                                          {'count': 6, 'label': '6M', 'step': 'month', 'stepmode': 'backward'},
+                                                          {'count': 1, 'label': '1Y', 'step': 'year', 'stepmode': 'backward'},
+                                                          {'step': 'all'}])}},
                 })
     return fig
 
@@ -213,13 +449,16 @@ def make_tertiary_plot(production_df,
             val = clickData["points"][0]['x']
             production_df[descriptors] = production_df[descriptors].astype(str)
         elif col == None:
-            col = descriptors[0]
-            val = production_df[descriptors[0]][0]
+            col = 'Product'
+            val = production_df[col].unique()[0]
         if col in desc:
             desc.remove(col)
         test = production_df.loc[production_df[col] == val]
         title = '{}: {}'.format(col,val)
+
+    test = test.replace(np.nan, 'N/A', regex=True)
     test[descriptors] = test[descriptors].astype(str)
+
     fig = px.sunburst(test, path=desc, color=margin_column, title='{}: {}'.format(
         col, val), hover_data=desc,
         color_continuous_scale=px.colors.sequential.Viridis,
@@ -227,6 +466,78 @@ def make_tertiary_plot(production_df,
     fig.update_layout({
                 "plot_bgcolor": "#FFFFFF",
                 "title": title,
+                "paper_bgcolor": "#FFFFFF",
+                "margin": dict(
+                       l=0,
+                       r=0,
+                       b=0,
+                       t=30,
+                       pad=4
+    ),
+                })
+    return fig
+
+def make_results_distribution(df,
+                 groupby_primary = "Cost Center",
+                 groupby_secondary = "Technology",
+                 groupby_tertiary = "Tank Number",
+                 time_column=time_components[3],
+                 data_type='Rate (Gal/Hr)',
+                 volume_column='Parent Batch Actual Qty',
+                 quant_target=0.75,
+                 dist_cutoff = 1):
+    groups = 3
+    ### Preprocessing
+    if (data_type == 'Rate (Gal/Hr)'):
+        margin_column = "{} By {} (Gal/Hr)".format(volume_column, time_column)
+        df[margin_column] = df[volume_column] / (df[time_column].dt.total_seconds()/60/60)
+    elif data_type == 'Volume (Gal)':
+        margin_column = "{} (Gal)".format(volume_column)
+        df[margin_column] = df[volume_column]
+    else:
+        margin_column = "{} (Hr)".format(time_column)
+        df[margin_column] = df[time_column].dt.total_seconds()/60/60
+    # margin_column = "{} By {} (Gal/Hr)".format(volume_column, time_column)
+    groupby = [groupby_primary, groupby_secondary, groupby_tertiary]
+    # df.loc[:, margin_column] = df[volume_column] / (df[time_column].dt.total_seconds()/60/60)
+    # df = df.loc[df[[margin_column, volume_column, time_column]].notnull().all(axis=1)]
+#     desc = df.groupby(groupby)[margin_column, volume_column, time_column].quantile([0.5,quant_target]).unstack(level=groups)
+#     return desc
+
+
+    dff = pd.DataFrame(df.groupby(groupby)[[margin_column]]\
+                 .median().sort_values(by=margin_column, ascending=False)).reset_index()
+    dff['median'] = dff.groupby(groupby)[margin_column].\
+            transform('median')
+
+    dff = dff.sort_values(['median', margin_column],
+        ascending=False).reset_index(drop=True)
+    dff = dff[dff.columns[:-1]]
+#     return dff
+    fig = go.Figure()
+    for index in dff.index:
+        trace = df.loc[(df[groupby_primary] == dff[groupby_primary][index]) &
+                 (df[groupby_secondary] == dff[groupby_secondary][index]) &
+                      (df[groupby_tertiary] == dff[groupby_tertiary][index])]
+        if trace.shape[0] > dist_cutoff:
+            name = 'Avg: {:.0f}, {}, {}, {}'.format(dff[margin_column][index],
+                                                dff[groupby_primary][index],
+                                                dff[groupby_secondary][index],
+                                               dff[groupby_tertiary][index])
+            fig.add_trace(go.Violin(x=trace[margin_column],
+                              y=trace["Site"],
+                              name=name,
+                            side='positive'))
+    fig.update_traces(meanline_visible=True, orientation='h')
+    fig.update_xaxes(rangemode="nonnegative")
+    fig.update_layout({
+                "title": '{}'.format(margin_column),
+                "xaxis.title": "{}".format(margin_column),
+                "yaxis.title": "{}, {}, {}".format(groupby[0], groupby[1], groupby[2]),
+                "height": 600})
+    fig.update_layout({
+                "plot_bgcolor": "#FFFFFF",
+                # "title": title,
                 "paper_bgcolor": "#FFFFFF",
                 "margin": dict(
                        l=0,
@@ -277,7 +588,7 @@ UPLOAD = html.Div([
         html.Div([
         dcc.Dropdown(id='preset-files',
                      multi=False,
-                     options=[{'label': i, 'value': i} for i in ['polyamides', 'films']],
+                     options=[{'label': i, 'value': i} for i in ['Cleveland Filtered', 'Cleveland', 'Oak Creek']],
                      # placeholder="Select Cloud Dataset",
                      className='dcc_control',
                      style={
@@ -292,38 +603,40 @@ UPLOAD = html.Div([
                                                                }
                                                                ),
         ], className='row flex-display',
+        style={'max-height': '500px',
+                 'margin-top': '200px'}
         ),
-    html.P('Margin Column'),
-    dcc.Dropdown(id='upload-margin',
-                 multi=False,
-                 options=[],
-                 className="dcc_control",
-                 style={'textAlign': 'center',
-                        'margin-bottom': '10px'}),
-    html.P('Volume Column'),
-    dcc.Dropdown(id='upload-volume',
-                 multi=False,
-                 options=[],
-                 className="dcc_control",
-                 style={'textAlign': 'center',
-                        'margin-bottom': '10px'}),
-    html.P('Descriptor-Attribute Columns'),
-    dcc.Dropdown(id='upload-descriptors',
-                 multi=True,
-                 options=[],
-                 className="dcc_control",
-                 style={'textAlign': 'left',
-                        'margin-bottom': '10px'}),
-    html.P('p-Value Limit for Median Test', id='pvalue-number'),
-    dcc.Slider(id='p-value-slider',
-               min=0.01,
-               max=1,
-               step=0.01,
-               value=0.5),
-    html.Button('Process data file',
-                id='datafile-button',
-                style={'textAlign': 'center',
-                       'margin-bottom': '10px'}),
+    # html.P('Margin Column'),
+    # dcc.Dropdown(id='upload-margin',
+    #              multi=False,
+    #              options=[],
+    #              className="dcc_control",
+    #              style={'textAlign': 'center',
+    #                     'margin-bottom': '10px'}),
+    # html.P('Volume Column'),
+    # dcc.Dropdown(id='upload-volume',
+    #              multi=False,
+    #              options=[],
+    #              className="dcc_control",
+    #              style={'textAlign': 'center',
+    #                     'margin-bottom': '10px'}),
+    # html.P('Descriptor-Attribute Columns'),
+    # dcc.Dropdown(id='upload-descriptors',
+    #              multi=True,
+    #              options=[],
+    #              className="dcc_control",
+    #              style={'textAlign': 'left',
+    #                     'margin-bottom': '10px'}),
+    # html.P('p-Value Limit for Median Test', id='pvalue-number'),
+    # dcc.Slider(id='p-value-slider',
+    #            min=0.01,
+    #            max=1,
+    #            step=0.01,
+    #            value=0.5),
+    # html.Button('Process data file',
+    #             id='datafile-button',
+    #             style={'textAlign': 'center',
+    #                    'margin-bottom': '10px'}),
 ],)
 
 HIDDEN = html.Div([
@@ -410,31 +723,59 @@ VISUALIZATION = html.Div([
     dcc.Dropdown(id='filter_dropdown_1',
                  options=[{'label': i, 'value': i} for i in
                             descriptors],
-                 value=descriptors[0],
+                 value='Cost Center',
                  multi=False,
                  className="dcc_control"),
     dcc.Dropdown(id='filter_dropdown_2',
                  options=[{'label': i, 'value': i} for i in
-                            production_df[groupby_primary].unique()],
-                 value=production_df[groupby_primary].unique(),
+                            production_df['Cost Center'].unique()],
+                 value=production_df['Cost Center'].unique(),
                  multi=True,
                  className="dcc_control"),
     html.P('Groupby Primary'),
     dcc.Dropdown(id='primary_dropdown',
                  options=[{'label': i, 'value': i} for i in
-                           descriptors],
-                 value=descriptors[0],
+                           descriptors + ['None']],
+                 value='Technology',
                  multi=False,
                  className="dcc_control"),
     html.P('Groupby Secondary'),
     dcc.Dropdown(id='secondary_dropdown',
                  options=[{'label': i, 'value': i} for i in
-                           descriptors],
-                 value=descriptors[1],
+                           descriptors + ['None']],
+                 value='Tank Number',
                  multi=False,
                  className="dcc_control"),
+    html.P('Process Times'),
+    dcc.Dropdown(id='time_dropdown',
+                 options=[{'label': i, 'value': i} for i in
+                           time_components],
+                 value=time_components[-1],
+                 multi=False,
+                 className="dcc_control"),
+    # html.P('Quantile Range'),
+    # dcc.RangeSlider(
+    #     id='quantile-slider',
+    #     min=0,
+    #     max=1,
+    #     step=0.05,
+    #     value=[.1, .9]
+    # ),
+    html.P('Graph Type'),
+    dcc.Dropdown(id='distribution',
+                 options=[{'label': i, 'value': i} for i in
+                           ['Scatter', 'Distribution', 'Parallel Coordinates (Time)']],
+                 value='Distribution',
+                 className="dcc_control"),
+    html.P('Plot Metric'),
+    dcc.Dropdown(id='data-type',
+                 options=[{'label': i, 'value': i} for i in
+                           ['Rate (Gal/Hr)', 'Volume (Gal)', 'Time (Hr)']],
+                 value='Rate (Gal/Hr)',
+                 className="dcc_control"),
       ],style={'max-height': '500px',
-               'margin-top': '20px'}
+               'margin-top': '20px',
+               'overflow': 'scroll'}
 )
 
 KPIS = html.Div([
@@ -498,56 +839,74 @@ KPIS = html.Div([
     ], className='row container-display',
 )
 
-# ANALYTICS = html.Div([
-# html.P('Families',
-# style={"margin-top": "20px"}),
-# dcc.Dropdown(id='family_dropdown_analytics',
-#              options=[{'label': i, 'value': i} for i in
-#                         production_df[category_filter].unique()],
-#              value=production_df[category_filter].unique(),
-#              multi=True,
-#              className="dcc_control"),
-# html.P('Descriptors'),
-# dcc.Dropdown(id='descriptor_dropdown_analytics',
-#              options=[{'label': i, 'value': i} for i in
-#                        descriptors],
-#              value=descriptors[:2],
-#              multi=True,
-#              className="dcc_control",
-#              style={'margin-bottom': '10px'}),
-# html.Button('Find opportunity',
-#             id='opportunity-button',
-#             style={'textAlign': 'center',
-#                    'margin-bottom': '10px'}),
-#
-#     ], style={'max-height': '500px',
-#              'overflow': 'scroll',
-#              'margin-top': '20px'}
-#
-#     )
+ANALYTICS = html.Div([
+html.P('Groupby Primary'),
+dcc.Dropdown(id='primary_dropdown_analytics',
+             options=[{'label': i, 'value': i} for i in
+                        descriptors],
+             value='Cost Center',
+             multi=False,
+             className="dcc_control"),
+html.P('Groupby Secondary'),
+dcc.Dropdown(id='secondary_dropdown_analytics',
+             options=[{'label': i, 'value': i} for i in
+                       descriptors],
+             value='Tank Number',
+             multi=False,
+             className="dcc_control"),
+html.P('Groupby Tertiary'),
+dcc.Dropdown(id='tertiary_dropdown_analytics',
+             options=[{'label': i, 'value': i} for i in
+                       descriptors],
+             value='Product',
+             multi=False,
+             className="dcc_control"),
+html.P('Process Times'),
+dcc.Dropdown(id='time_dropdown_analytics',
+             options=[{'label': i, 'value': i} for i in
+                       time_components],
+             value=time_components[1],
+             multi=False,
+             className="dcc_control"),
+html.Button('Find opportunity',
+            id='opportunity-button',
+            style={'textAlign': 'center',
+                   'margin-bottom': '10px'}),
+html.P('Plot Metric'),
+dcc.Dropdown(id='data-type-analytics',
+             options=[{'label': i, 'value': i} for i in
+                       ['Rate (Gal/Hr)', 'Volume (Gal)', 'Time (Hr)']],
+             value='Rate (Gal/Hr)',
+             className="dcc_control"),
+
+    ], style={'max-height': '500px',
+             'margin-top': '20px'}
+
+    )
 
 app.layout = html.Div([NAVBAR,
 html.Div(className='pretty_container', children=[KPIS,
     html.Div([
         html.Div([
-        dcc.Tabs(id='tabs-control', value='tab-1', children=[
-            dcc.Tab(label='About', value='tab-3',
-                    children=[ABOUT]),
-            # dcc.Tab(label='Upload', value='tab-4',
-                    # children=[UPLOAD]),
+        dcc.Tabs(id='tabs-control', value='tab-2', children=[
+            dcc.Tab(label='Upload', value='tab-4',
+                    children=[UPLOAD]),
+            dcc.Tab(label='Analytics', value='tab-2',
+                    children=[ANALYTICS]),
             dcc.Tab(label='Visualization', value='tab-1',
                     children=[VISUALIZATION]),
-            # dcc.Tab(label='Analytics', value='tab-2',
-            #         children=[ANALYTICS]),
+            dcc.Tab(label='About', value='tab-3',
+                    children=[ABOUT]),
                     ]),
             ], className='mini_container',
                id='descriptorBlock',
             ),
         html.Div([
             dcc.Graph(id='primary_plot',
-                      figure=make_primary_plot(production_df,
-                        margin_column, groupby_primary,
-                        groupby_secondary)),
+                      # figure=make_primary_plot(production_df,
+                      #   margin_column, volume_column, groupby_primary,
+                      #   groupby_secondary, time_column)
+                        ),
             ], className='mini_container',
                id='ebit-family-block',
                style={'display': 'block'},
@@ -558,50 +917,209 @@ html.Div(className='pretty_container', children=[KPIS,
         html.Div([
             dcc.Graph(className='inside_container',
                         id='secondary_plot',
+                        style={'display': 'none'},
                         figure=make_secondary_plot(production_df,
                                            margin_column,
+                                           time_column,
                                            groupby_primary,
-                                           groupby_secondary)
+                                           groupby_secondary,
+                                           chart_type='Parallel Coordinates (Time)')
                         ),
             html.Div([
             dcc.Loading(
                 id="loading-1",
                 type="default",
                 children=dash_table.DataTable(id='opportunity-table',
-                                 row_selectable='multi',),),
+                                    editable=True,
+                                    # filter_action="native",
+                                    sort_action="native",
+                                    sort_mode="multi",
+                                    column_selectable="single",
+                                    row_selectable="multi",
+                                    row_deletable=True,
+                                    selected_columns=[],
+                                    selected_rows=[0, 1, 2],
+                                    page_action="native",
+                                    page_current= 0,
+                                    page_size= 10,),),
                     ],
                     id='opportunity-table-block',
-                    style={'overflow': 'scroll',
-                           'display': 'none'}),
+                    style={'overflow': 'scroll'}),
             ], className='mini_container',
                id='violin',
                style={'display': 'block'},
                 ),
-        html.Div([
-            dcc.Dropdown(id='length_width_dropdown',
-                        options=[{'label': i, 'value': i} for i in
-                                   descriptors],
-                        value=descriptors[:-3],
-                        multi=True,
-                        placeholder="Include in sunburst chart...",
-                        className="dcc_control"),
-            dcc.Graph(
-                        id='tertiary_plot',
-                        figure=make_tertiary_plot(production_df, margin_column,
-                                         descriptors, toAdd=descriptors[:-3])
-                        ),
-                ], className='mini_container',
-                   id='sunburst',
-                ),
+        # html.Div([
+        #     dcc.Dropdown(id='length_width_dropdown',
+        #                 options=[{'label': i, 'value': i} for i in
+        #                            descriptors],
+        #                 value=descriptors[:-3],
+        #                 multi=True,
+        #                 placeholder="Include in sunburst chart...",
+        #                 className="dcc_control"),
+        #     dcc.Graph(
+        #                 id='tertiary_plot',
+        #                 figure=make_tertiary_plot(production_df, margin_column,
+        #                                  descriptors, toAdd=descriptors[:-3])
+        #                 ),
+        #         ], className='mini_container',
+        #            id='sunburst',
+        #         ),
             ], className='row container-display',
                style={'margin-bottom': '10px'},
             ),
     ],
     ), HIDDEN,
     html.Div([], id='clickdump'),
+    # html.Pre(id='relayout-data'),
 ],
 )
 app.config.suppress_callback_exceptions = True
+
+# @app.callback(
+#     Output('relayout-data', 'children'),
+#     [Input('primary_plot', 'relayoutData')])
+# def display_relayout_data(relayoutData):
+#     return json.dumps(relayoutData, indent=2)
+
+#### Tab control stuff
+### UPLOAD TOOL ###
+@app.callback(
+    [Output('production-df-upload', 'children'),],
+  [Input('upload-data', 'contents'),
+   Input('preset-files', 'value')],
+  [State('upload-data', 'filename'),
+   State('upload-data', 'last_modified')])
+def update_production_df_and_table(list_of_contents, preset_file, list_of_names, list_of_dates):
+    if list_of_contents is not None:
+        df = [parse_contents(c, n, d) for c, n, d in
+            zip(list_of_contents, list_of_names, list_of_dates)]
+        df = df[0]
+        columns = [{'label': i, 'value': i} for i in df.columns]
+        columns_table = [{"name": i, "id": i} for i in df.columns]
+        return columns, columns, df.to_json(), columns
+    elif preset_file is not None:
+
+        dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
+        # if preset_file == 'Cleveland':
+        #     production_df = whole_df
+        # else:
+        production_df = pd.read_csv('data/{}.csv'.format(preset_file), parse_dates=dates)
+        descriptors = ['Batch Completion Date', 'Batch Number', 'Tank Number',
+               'Cost Center', 'Technology', 'Product', 'Inventory Category',
+               'Equalization Lot Number', 'Parent Batch Planned Qty',
+               'Parent Batch Actual Qty', 'Family']
+        time_components = ['PA Time',
+         'Tot. CM Time',
+         '80 appv.',
+         'Filling Time',
+         'Tot. Time']
+        time_components = production_df.columns[6:11]
+        for col in time_components:
+            production_df[col] = pd.to_timedelta(production_df[col])
+        time_column = time_components[-1]
+        volume_column = 'Parent Batch Actual Qty'
+        margin_column = "{} By {}".format(volume_column, time_column)
+        production_df[margin_column] = production_df[volume_column] /\
+            (production_df[time_components[-1]].dt.total_seconds()/60/60)
+        groupby_primary = 'Technology'
+        groupby_secondary = descriptors[2]
+        # df = pd.read_csv('data/{}.csv'.format(preset_file))
+        columns = [{'label': i, 'value': i} for i in production_df.columns]
+        columns_table = [{"name": i, "id": i} for i in production_df.columns]
+        print(production_df.head())
+        return [production_df.to_json()]
+
+# @app.callback(
+#     [Output('production-df-upload', 'children'),
+#     # Output('stat-df-upload', 'children'),
+#     # Output('descriptors-upload', 'children'),
+#     # Output('metric-upload', 'children'),
+#     # Output('volume-upload', 'children'),
+#     ],
+#    [Input('production-df-holding', 'children'),
+#     Input('upload-margin', 'value'),
+#     Input('upload-descriptors', 'value'),
+#     Input('datafile-button', 'n_clicks'),
+#     Input('upload-volume', 'value'),
+#     Input('p-value-slider', 'value')]
+# )
+# def update_main_dataframe(holding_df, margin, descriptors, button, volume, pvalue):
+#     ctx = dash.callback_context
+#     if ctx.triggered[0]['prop_id'] == 'datafile-button.n_clicks':
+#         production_df = pd.read_json(holding_df)
+#         for desc in descriptors: #9 is arbitrary should be a fraction of total datapoints or something
+#             if (len(production_df[desc].unique()) > 9) and (production_df[desc].dtype == float):
+#                 production_df[desc] = np.round(production_df[desc].astype(float),1)
+#         stat_df = my_median_test(production_df,
+#                    metric=margin,
+#                    descriptors=descriptors,
+#                    stat_cut_off=pvalue,
+#                    continuous=False)
+#         production_df[descriptors] = production_df[descriptors].astype(str)
+#         production_df = production_df.sort_values(['Product Family', margin],
+#                                                   ascending=False)
+#         return production_df.to_json()
+
+@app.callback(
+    [Output('opportunity-table', 'data'),
+    Output('opportunity-table', 'columns'),
+    Output('opportunity-table', 'filter_action'),
+    Output('opportunity-table', 'selected_rows')],
+    [Input('opportunity-button', 'n_clicks'),
+    Input('production-df-upload', 'children'),
+    Input('primary_dropdown_analytics', 'value'),
+    Input('secondary_dropdown_analytics', 'value'),
+    Input('tertiary_dropdown_analytics', 'value'),
+    Input('time_dropdown_analytics', 'value'),
+    Input('tabs-control', 'value'),]
+)
+def display_opportunity_results(button, production_df, one, two, three, time, tab):
+    ctx = dash.callback_context
+
+    if (ctx.triggered[0]['prop_id'] == 'opportunity-button.n_clicks') or\
+       (ctx.triggered[0]['prop_id'] == 'tabs-control.value'):
+        production_df = pd.read_json(production_df)
+        for col in time_components:
+            production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
+            production_df[col] = production_df[col].dt.total_seconds()/60/60
+        results = find_opportunity(production_df, one, two, three, time).reset_index()
+        results.columns = [str(x).strip().replace('(', '').replace(')', '').replace("'", '') for x in results.columns]
+        results = np.round(results)
+        results = results[[i for i in results.columns if ('75%' not in i) and ('50%' not in i)]]
+        metric = results['Time Opportunity, Hours']
+        results['Rating'] = results['Time Opportunity, Hours'].apply(lambda x:
+            '⭐⭐⭐⭐' if x > metric.quantile(0.99) else (
+            '⭐⭐⭐' if x > metric.quantile(0.75) else (
+            '⭐⭐' if x > metric.quantile(0.5) else (
+            '⭐' if x > metric.quantile(0.25) else ''
+        ))))
+        columns=[{"name": i, "id": i} for i in results.columns]
+        data = results.to_dict('rows')
+        rows = [i for i in results.index if results['Time Opportunity, Hours'][i] > metric.quantile(0.99)]
+
+        return data, columns, 'native', rows
+
+
+@app.callback(
+    [Output('secondary_plot', 'style'),
+     Output('opportunity-table-block', 'style'),],
+    [Input('tabs-control', 'value'),]
+)
+def display_violin_plot(tab):
+    if (tab == 'tab-1') | (tab == 'tab-3') | (tab == 'tab-4'):
+            return {'display': 'block',
+             'margin': '10px',
+             'padding': '15px',
+             'position': 'relative',
+             'border-radius': '5px',
+             'width': '95%'}, {'display': 'none'}
+    elif tab == 'tab-2':
+            return {'display': 'none'}, \
+            {'max-height': '500px',
+               'overflow': 'scroll',
+               'display': 'block',
+               'padding': '0px 20px 20px 20px'}
 
 @app.callback(
     [Output('kpi-1', 'children'),
@@ -609,8 +1127,8 @@ app.config.suppress_callback_exceptions = True
      Output('kpi-3', 'children')],
     [Input('filter_dropdown_1', 'value'),
     Input('filter_dropdown_2', 'value'),
-    Input('opportunity-table', 'derived_viewport_selected_rows'),
-    Input('opportunity-table', 'data'),
+    Input('opportunity-table', 'derived_virtual_selected_rows'),
+    Input('opportunity-table', 'derived_virtual_data'),
     Input('tabs-control', 'value'),
     Input('production-df-upload', 'children'),
     Input('margin-upload', 'children'),
@@ -618,63 +1136,206 @@ app.config.suppress_callback_exceptions = True
     Input('secondary_dropdown', 'value'),
     Input('secondary_plot', 'clickData'),
     Input('primary_plot', 'selectedData'),
+    Input('secondary_plot', 'relayoutData'),
+    Input('time_dropdown', 'value'),
+    Input('time_dropdown_analytics', 'value'),
     ]
 )
 def display_opportunity(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
-                        groupby_secondary, clickData, selectedData):
-    production_df = pd.read_json(production_df)
+                        groupby_secondary, clickData, selectedData,
+                        relayoutData, time_column, time):
+    if (tab == 'tab-2') and (data is not None) and (len(rows) > 0):
+        production_df = pd.read_json(production_df, convert_dates=dates)
+#         total_volume = pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum()/1e6
+        total_volume = production_df['Parent Batch Actual Qty'].sum()/1e6
+        extra_volume = pd.DataFrame(data).iloc[rows]['Volume Opportunity, Gal'].sum()/1e6
+        volume_increase = (total_volume + extra_volume) / total_volume * 100
+
+#         total_batches = pd.DataFrame(data)['Count'].sum()
+        total_batches = production_df.shape[0]
+        mean_batch_size = pd.DataFrame(data).iloc[rows]['Parent Batch Actual Qty, mean'].mean()/1e6
+        extra_batches = extra_volume / mean_batch_size
+        batch_increase = (total_batches + extra_batches) / total_batches * 100
+
+        rate = pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum() /\
+            pd.DataFrame(data)['{}, sum'.format(time)].sum()
+#         production_df[time] = pd.to_timedelta(production_df[time], unit='ms')
+#         rate = production_df['Parent Batch Actual Qty'].sum() /\
+#             (production_df[time].dt.total_seconds()/60/60)
+        new_rate = (pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum() + (extra_volume*1e6) )/ pd.DataFrame(data)['{}, sum'.format(time)].sum()
+        rate_increase = new_rate / rate * 100
+        return "{:.1f} M Gal / Hr".format(new_rate), \
+        "+ {:.0f} Batches ({:.2f}%)".format(extra_batches, batch_increase), \
+        "+ {:.2f} M Gal ({:.2f}%)".format(extra_volume, volume_increase)
+    if type(filter_selected) == str:
+        filter_selected = [filter_selected]
+    production_df = pd.read_json(production_df, convert_dates=dates)
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
+    for col in time_components:
+        production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
+    production_df[margin_column] = production_df[volume_column] /\
+        (production_df[time_column].dt.total_seconds()/60/60)
+    # production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+        production_df[margin_column].quantile(0.995))]
+    if relayoutData is not None:
+        if 'xaxis.range[0]' in relayoutData.keys():
+            start = pd.to_datetime(relayoutData['xaxis.range[0]'])
+            end = pd.to_datetime(relayoutData['xaxis.range[1]'])
+            production_df = production_df.loc[(production_df[dates[-1]] < end) &
+                                              (production_df[dates[-1]] > start)]
     old_kpi_2 = production_df.shape[0]
-    old_kpi_1 = (production_df['Actual Qty In (KLG)'].sum() -
-                 production_df['Planned Qty In (KLG)'].sum()) * 5
-    old_kpi_3 = production_df['Actual Qty In (KLG)'].sum()
-    return "{:.2f} M USD".format(old_kpi_1/1e6), \
+    old_kpi_1 = production_df[margin_column].mean()
+    old_kpi_3 = production_df[volume_column].sum()
+    # old_kpi_1 = (production_df['Actual Qty In (KLG)'].sum() -
+    #              production_df['Planned Qty In (KLG)'].sum()) * 5
+    # old_kpi_3 = production_df['Actual Qty In (KLG)'].sum()
+    return "{:.2f} Avg. Gal/Hr".format(old_kpi_1), \
     "{}".format(old_kpi_2),\
-    "{:.2f} M kg".format(old_kpi_3/1e6)
+    "{:.2f} M Gal".format(old_kpi_3/1e6)
 
 @app.callback(
     [Output('filter_dropdown_2', 'options'),
-     Output('filter_dropdown_2', 'value')],
-    [Input('filter_dropdown_1', 'value')]
+     Output('filter_dropdown_2', 'value'),
+     Output('filter_dropdown_2', 'multi'),],
+    [Input('filter_dropdown_1', 'value'),
+     Input('distribution', 'value'),
+     Input('production-df-upload', 'children'),]
 )
-def update_filter(category):
-    return [{'label': i, 'value': i} for i in production_df[category].unique()],\
-        list(production_df[category].unique())
+def update_filter(category, type, production_df):
+    production_df = pd.read_json(production_df)
+    if type == 'Distribution':
+        if len(production_df[category].unique()) > 1:
+            return [{'label': i, 'value': i} for i in production_df[category].unique()],\
+            production_df[category].unique()[-2], False
+        else:
+            return [{'label': i, 'value': i} for i in production_df[category].unique()],\
+            production_df[category].unique()[0], False
+    else:
+        return [{'label': i, 'value': i} for i in production_df[category].unique()],\
+        list(production_df[category].unique()), True
+
+# @app.callback(
+#      Output('filter_dropdown_2', 'multi'),
+#     [Input('distribution', 'value')]
+# )
+# def update_filter(type):
+#     if type == 'Distribution (Volume)':
+#         return False
+#     else:
+#         return True
+
+@app.callback(
+    Output('margin-upload', 'children'),
+    [Input('time_dropdown', 'value'),
+    Input('time_dropdown_analytics', 'value'),
+    Input('tabs-control', 'value'),]
+)
+def margin_column(time_column, time, tab):
+    if tab == 'tab-2':
+        return "{} By {}".format(volume_column, time)
+    else:
+        return "{} By {}".format(volume_column, time_column)
+
+@app.callback(
+    Output('margin-label', 'children'),
+    [Input('time_dropdown', 'value'),
+    Input('time_dropdown_analytics', 'value'),
+    Input('tabs-control', 'value'),]
+)
+def margin_column(time_column, time, tab):
+    if tab == 'tab-2':
+        return "{} By {}".format(volume_column, time)
+    else:
+        return "{} By {}".format(volume_column, time_column)
 
 ### FIGURES ###
 @app.callback(
-    [Output('primary_plot', 'figure'),
-    Output('secondary_plot', 'figure'),],
+    Output('primary_plot', 'figure'),
     [Input('filter_dropdown_1', 'value'),
     Input('filter_dropdown_2', 'value'),
-    Input('opportunity-table', 'derived_viewport_selected_rows'),
-    Input('opportunity-table', 'data'),
+    Input('opportunity-table', 'derived_virtual_selected_rows'),
+    Input('opportunity-table', 'derived_virtual_data'),
     Input('tabs-control', 'value'),
     Input('production-df-upload', 'children'),
     Input('margin-upload', 'children'),
     Input('primary_dropdown', 'value'),
     Input('secondary_dropdown', 'value'),
+    Input('secondary_plot', 'relayoutData'),
+    Input('time_dropdown', 'value'),
+    Input('distribution', 'value'),
+    Input('data-type', 'value'),
+    Input('primary_dropdown_analytics', 'value'),
+    Input('secondary_dropdown_analytics', 'value'),
+    Input('tertiary_dropdown_analytics', 'value'),
+    Input('time_dropdown_analytics', 'value'),
+    Input('data-type-analytics', 'value'),
     ]
 )
 def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
-                        groupby_secondary):
+                        groupby_secondary, relayoutData, time_column,
+                        chart_type, data_type, one, two, three, time,
+                        data_type_analytics):
+    production_df = pd.read_json(production_df, convert_dates=dates)
+    margin_column = "{} By {}".format(volume_column, time_column)
+    for col in time_components:
+        production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
+    production_df[margin_column] = production_df[volume_column] /\
+        (production_df[time_column].dt.total_seconds()/60/60)
 
-    production_df = pd.read_json(production_df)
+    if (tab == 'tab-2') and (data is not None) and (len(rows) > 0):
+        # for col in time_components:
+        #     production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
+        groupby_primary = one
+        groupby_secondary = two
+        groupby_tertiary = three
+        opp_data = pd.DataFrame(data)
+        groups = opp_data.iloc[rows]
+        sub_df = pd.DataFrame()
+        for row in rows:
+            group_one = opp_data[groupby_primary][row]
+            group_two = opp_data[groupby_secondary][row]
+            group_three = opp_data[groupby_tertiary][row]
+            sub_df = pd.concat([sub_df,
+            production_df.loc[(production_df[groupby_primary] == group_one) &
+                              (production_df[groupby_secondary] == group_two) &
+                              (production_df[groupby_tertiary] == group_three)]])
+
+        return make_results_distribution(sub_df, one, two, three, time,
+            data_type_analytics)
+    # elif (tab == 'tab-2'):
+    #     return None
+    if type(filter_selected) == str:
+        filter_selected = [filter_selected]
+
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
+    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+        production_df[margin_column].quantile(0.997))]
+    print('prim filt ', production_df.shape)
 
-    return [make_primary_plot(production_df,
-      margin_column, groupby_primary,
-      groupby_secondary),
-      make_secondary_plot(production_df,
-        margin_column, groupby_primary,
-        groupby_secondary)]
+    if relayoutData is not None:
+        if 'xaxis.range[0]' in relayoutData.keys():
+            start = pd.to_datetime(relayoutData['xaxis.range[0]'])
+            end = pd.to_datetime(relayoutData['xaxis.range[1]'])
+            production_df = production_df.loc[(production_df[dates[-1]] < end) &
+                                              (production_df[dates[-1]] > start)]
+        return make_primary_plot(production_df,
+          margin_column, volume_column, groupby_primary,
+          groupby_secondary, time_column, chart_type=chart_type,
+          data_type=data_type)
+
+    return make_primary_plot(production_df,
+      margin_column, volume_column, groupby_primary,
+      groupby_secondary, time_column, chart_type=chart_type,
+      data_type=data_type)
 
 @app.callback(
-    Output('tertiary_plot', 'figure'),
+    Output('secondary_plot', 'figure'),
     [Input('filter_dropdown_1', 'value'),
     Input('filter_dropdown_2', 'value'),
     Input('opportunity-table', 'derived_viewport_selected_rows'),
@@ -684,36 +1345,84 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
     Input('margin-upload', 'children'),
     Input('primary_dropdown', 'value'),
     Input('secondary_dropdown', 'value'),
-    Input('secondary_plot', 'clickData'),
-    Input('primary_plot', 'selectedData'),
-    Input('length_width_dropdown', 'value'),
-    Input('descriptors-upload', 'children'),
+    Input('time_dropdown', 'value'),
+    Input('distribution', 'value'),
+    Input('data-type', 'value'),
     ]
 )
-def display_tertiary_plot(filter_category, filter_selected, rows, data, tab,
+def display_secondary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
-                        groupby_secondary, clickData, selectedData,
-                         toAdd, descriptors):
+                        groupby_secondary, time_column, chart_type, data_type):
+    production_df = pd.read_json(production_df, convert_dates=dates)
+    margin_column = "{} By {}".format(volume_column, time_column)
+    if type(filter_selected) == str:
+        filter_selected = [filter_selected]
 
-    production_df = pd.read_json(production_df)
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
-    ctx = dash.callback_context
-    if ctx.triggered[0]['prop_id'] == 'primary_plot.selectedData':
-        dff = pd.DataFrame(selectedData['points'])
-        dfff = pd.DataFrame(production_df[groupby_secondary].unique())
-        subdf = production_df.loc[(production_df[groupby_primary].isin(dff['label'])) &
-                (production_df[groupby_secondary].isin(dfff.iloc
-                [dfff.index.isin(dff['curveNumber'])][0].values))]
-        return make_tertiary_plot(production_df, margin_column, descriptors,
-            toAdd=toAdd,
-            subdf=subdf)
+    for col in time_components:
+        production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
+    production_df[margin_column] = production_df[volume_column] /\
+        (production_df[time_column].dt.total_seconds()/60/60)
+    production_df = production_df.loc[production_df[margin_column] < np.inf]
+    production_df = production_df.loc[(production_df[margin_column] <
+        production_df[margin_column].quantile(0.997))]
+    print('secon filt ', production_df.shape)
+    return make_secondary_plot(production_df,
+        margin_column, time_column, groupby_primary,
+        groupby_secondary, chart_type=chart_type, data_type=data_type)
 
-    col = groupby_primary
-    val = production_df[col].unique()[0]
-
-    return make_tertiary_plot(production_df, margin_column, descriptors,
-        clickData=clickData, toAdd=toAdd, col=col, val=val)
+# @app.callback(
+#     Output('tertiary_plot', 'figure'),
+#     [Input('filter_dropdown_1', 'value'),
+#     Input('filter_dropdown_2', 'value'),
+#     Input('opportunity-table', 'derived_viewport_selected_rows'),
+#     Input('opportunity-table', 'data'),
+#     Input('tabs-control', 'value'),
+#     Input('production-df-upload', 'children'),
+#     Input('margin-upload', 'children'),
+#     Input('primary_dropdown', 'value'),
+#     Input('secondary_dropdown', 'value'),
+#     Input('secondary_plot', 'clickData'),
+#     Input('primary_plot', 'selectedData'),
+#     Input('length_width_dropdown', 'value'),
+#     Input('descriptors-upload', 'children'),
+#     Input('secondary_plot', 'relayoutData'),
+#     Input('time_dropdown', 'value')
+#     ]
+# )
+# def display_tertiary_plot(filter_category, filter_selected, rows, data, tab,
+#                         production_df, margin_column, groupby_primary,
+#                         groupby_secondary, clickData, selectedData,
+#                          toAdd, descriptors, relayoutData, time_column):
+#
+#     production_df = pd.read_json(production_df, convert_dates=dates)
+#     production_df = production_df.loc[production_df[filter_category].isin(
+#         filter_selected)]
+#     for col in time_components:
+#         production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
+#     production_df[margin_column] = production_df[volume_column] /\
+#         (production_df[time_column].dt.total_seconds()/60/60)
+#     production_df = production_df.loc[production_df[margin_column] < np.inf]
+#     production_df = production_df.loc[(production_df[margin_column] <
+#         production_df[margin_column].quantile(0.995))]
+#     ctx = dash.callback_context
+#     if ctx.triggered[0]['prop_id'] == 'primary_plot.selectedData':
+#         dff = pd.DataFrame(selectedData['points'])
+#         # dfff = pd.DataFrame(production_df[groupby_secondary].unique())
+#         subdf = production_df.loc[(production_df[groupby_primary].isin(dff['x']))]# &
+#                 # (production_df[groupby_secondary].isin(dfff.iloc
+#                 # [dfff.index.isin(dff['curveNumber'])][0].values))]
+#
+#         return make_tertiary_plot(production_df, margin_column, descriptors,
+#             toAdd=toAdd,
+#             subdf=subdf)
+#
+#     col = groupby_primary
+#     val = production_df[col].unique()[0]
+#
+#     return make_tertiary_plot(production_df, margin_column, descriptors,
+#         clickData=clickData, toAdd=toAdd, col=col, val=val)
 
 if __name__ == "__main__":
     app.run_server(debug=True)
