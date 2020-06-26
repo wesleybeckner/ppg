@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import base64
 import io
+import copy
 
 import dash
 import dash_auth
@@ -11,6 +12,7 @@ import dash_daq as daq
 import dash_bootstrap_components as dbc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State
+from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import plotly.express as px
@@ -39,32 +41,6 @@ auth = dash_auth.BasicAuth(
 server = app.server
 
 ########## PPG
-# production_df = pd.read_csv('data/work_cell_data.csv')
-# margin_column = 'Actual vs Planned'
-# groupby_primary = 'Batch Close Month'
-# groupby_secondary = 'Inventory Org Name'
-# descriptors = list(production_df.select_dtypes(exclude=np.number).columns)
-##########
-
-########## PPG2
-# dates = ['Batch Completion Date',
-#  'Move Order Created',
-#  'First Inv Pick',
-#  'Last Inv Pick',
-#  'First Formulated Consumed Material',
-#  'Last Formulated Consumed Material',
-#  'First QC Consumed Material',
-#  'Last QC Consumed Material',
-#  'TO.80 Log Date',
-#  'Preship And Fill Date',
-#  'TO.80 Approval Date',
-#  'Min SKU WIP Start Date',
-#  'First WIP Completion Transaction',
-#  'Last WIP Completion Transaction',f
-#  'TO.90 Log Date',
-#  'TO.90 Approval Date',
-#  'Min Date',
-#  'Max Date']
 dates = ['Batch Completion Date', 'First Formulated Consumed Material', 'TO.80 Log Date']
 production_df = pd.read_csv('data/test.csv', parse_dates=dates)
 # whole_df = pd.read_csv('data/Cleveland.csv', parse_dates=dates)
@@ -86,11 +62,9 @@ production_df[margin_column] = production_df[volume_column] /\
 groupby_primary = 'Technology'
 groupby_secondary = descriptors[2]
 production_df = production_df.loc[production_df[margin_column] < 1e2]
-
+global_df = copy.copy(production_df)
 ##########
 
-
-# production_df[descriptors] = production_df[descriptors].astype(str)
 production_json = production_df.to_json()
 
 def find_opportunity(df,
@@ -144,11 +118,11 @@ def make_primary_plot(production_df,
     elif chart_type != 'Parallel Coordinates (Time)':
         margin_column = "{} (Hr)".format(time_column)
         production_df[margin_column] = production_df[time_column].dt.total_seconds()/60/60
-    production_df = production_df.loc[production_df[margin_column] < np.inf]
-    production_df = production_df.loc[(production_df[margin_column] <
-               production_df[margin_column].quantile(quant[1])) &
-              (production_df[margin_column] >
-               production_df[margin_column].quantile(quant[0]))]
+    # production_df = production_df.loc[production_df[margin_column] < np.inf]
+    # production_df = production_df.loc[(production_df[margin_column] <
+    #            production_df[margin_column].quantile(quant[1])) &
+    #           (production_df[margin_column] >
+    #            production_df[margin_column].quantile(quant[0]))]
 
     ### Charts
     if chart_type == 'Parallel Coordinates (Time)':
@@ -329,7 +303,7 @@ def make_secondary_plot(production_df,
                    results_df=None,
                    chart_type='Parallel Coordinates (Time)',
                    data_type='Rate (Gal/Hr)',
-                   quant=[0.02, 0.98],
+                   quant=[0.02, 0.997],
                    dist_cutoff=2,
                    start_date='First Formulated Consumed Material',
                    end_date='TO.80 Log Date'):
@@ -343,11 +317,11 @@ def make_secondary_plot(production_df,
     elif chart_type != 'Parallel Coordinates (Time)':
         margin_column = "{} (Hr)".format(time_column)
         production_df[margin_column] = production_df[time_column].dt.total_seconds()/60/60
-    production_df = production_df.loc[production_df[margin_column] < np.inf]
-    production_df = production_df.loc[(production_df[margin_column] <
-               production_df[margin_column].quantile(quant[1])) &
-              (production_df[margin_column] >
-               production_df[margin_column].quantile(quant[0]))]
+    # production_df = production_df.loc[production_df[margin_column] < np.inf]
+    # production_df = production_df.loc[(production_df[margin_column] <
+    #            production_df[margin_column].quantile(quant[1])) &
+    #           (production_df[margin_column] >
+    #            production_df[margin_column].quantile(quant[0]))]
     groupby = [groupby_primary, groupby_secondary]
     groupby = [i for i in groupby if 'None' not in i]
     if len(groupby) == 0:
@@ -1029,6 +1003,8 @@ def update_production_df_and_table(list_of_contents, preset_file, list_of_names,
         columns_table = [{"name": i, "id": i} for i in production_df.columns]
         print(production_df.head())
         return [production_df.to_json()]
+    else:
+        raise PreventUpdate
 
 # @app.callback(
 #     [Output('production-df-upload', 'children'),
@@ -1079,7 +1055,8 @@ def display_opportunity_results(button, production_df, one, two, three, time, ta
 
     if (ctx.triggered[0]['prop_id'] == 'opportunity-button.n_clicks') or\
        (ctx.triggered[0]['prop_id'] == 'tabs-control.value'):
-        production_df = pd.read_json(production_df)
+        # production_df = pd.read_json(production_df)
+        production_df = global_df
         for col in time_components:
             production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
             production_df[col] = production_df[col].dt.total_seconds()/60/60
@@ -1146,7 +1123,8 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
                         groupby_secondary, clickData, selectedData,
                         relayoutData, time_column, time):
     if (tab == 'tab-2') and (data is not None) and (len(rows) > 0):
-        production_df = pd.read_json(production_df, convert_dates=dates)
+        # production_df = pd.read_json(production_df, convert_dates=dates)
+        production_df = global_df
 #         total_volume = pd.DataFrame(data)['Parent Batch Actual Qty, sum'].sum()/1e6
         total_volume = production_df['Parent Batch Actual Qty'].sum()/1e6
         extra_volume = pd.DataFrame(data).iloc[rows]['Volume Opportunity, Gal'].sum()/1e6
@@ -1170,7 +1148,8 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
         "+ {:.2f} M Gal ({:.2f}%)".format(extra_volume, volume_increase)
     if type(filter_selected) == str:
         filter_selected = [filter_selected]
-    production_df = pd.read_json(production_df, convert_dates=dates)
+    # production_df = pd.read_json(production_df, convert_dates=dates)
+    production_df = global_df
     production_df = production_df.loc[production_df[filter_category].isin(
         filter_selected)]
     for col in time_components:
@@ -1178,8 +1157,8 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
     production_df[margin_column] = production_df[volume_column] /\
         (production_df[time_column].dt.total_seconds()/60/60)
     # production_df = production_df.loc[production_df[margin_column] < np.inf]
-    production_df = production_df.loc[(production_df[margin_column] <
-        production_df[margin_column].quantile(0.995))]
+    # production_df = production_df.loc[(production_df[margin_column] <
+    #     production_df[margin_column].quantile(0.995))]
     if relayoutData is not None:
         if 'xaxis.range[0]' in relayoutData.keys():
             start = pd.to_datetime(relayoutData['xaxis.range[0]'])
@@ -1205,7 +1184,8 @@ def display_opportunity(filter_category, filter_selected, rows, data, tab,
      Input('production-df-upload', 'children'),]
 )
 def update_filter(category, type, production_df):
-    production_df = pd.read_json(production_df)
+    # production_df = pd.read_json(production_df)
+    production_df = global_df
     if type == 'Distribution':
         if len(production_df[category].unique()) > 1:
             return [{'label': i, 'value': i} for i in production_df[category].unique()],\
@@ -1279,7 +1259,8 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
                         groupby_secondary, relayoutData, time_column,
                         chart_type, data_type, one, two, three, time,
                         data_type_analytics):
-    production_df = pd.read_json(production_df, convert_dates=dates)
+    # production_df = pd.read_json(production_df, convert_dates=dates)
+    production_df = global_df
     margin_column = "{} By {}".format(volume_column, time_column)
     for col in time_components:
         production_df[col] = pd.to_timedelta(production_df[col], unit='ms')
@@ -1353,7 +1334,8 @@ def display_primary_plot(filter_category, filter_selected, rows, data, tab,
 def display_secondary_plot(filter_category, filter_selected, rows, data, tab,
                         production_df, margin_column, groupby_primary,
                         groupby_secondary, time_column, chart_type, data_type):
-    production_df = pd.read_json(production_df, convert_dates=dates)
+    # production_df = pd.read_json(production_df, convert_dates=dates)
+    production_df = global_df
     margin_column = "{} By {}".format(volume_column, time_column)
     if type(filter_selected) == str:
         filter_selected = [filter_selected]
